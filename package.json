@@ -1,0 +1,84 @@
+{
+  "name": "hunkwise",
+  "publisher": "molon",
+  "displayName": "hunkwise",
+  "description": "Per-hunk Accept/Discard for any file change",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "enabledApiProposals": [
+    "editorInsets"
+  ],
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "hunkwise.enable",
+        "title": "hunkwise: Enable"
+      },
+      {
+        "command": "hunkwise.disable",
+        "title": "hunkwise: Disable"
+      },
+      {
+        "command": "hunkwise.startTracking",
+        "title": "hunkwise: Start Tracking Current File"
+      },
+      {
+        "command": "hunkwise.openSettings",
+        "title": "hunkwise: Settings",
+        "icon": "$(settings-gear)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "hunkwise.openSettings",
+          "when": "view == hunkwiseToolbar",
+          "group": "navigation"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "panel": [
+        {
+          "id": "hunkwisePanel",
+          "title": "hunkwise",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "hunkwisePanel": [
+        {
+          "id": "hunkwiseToolbar",
+          "name": "hunkwise",
+          "type": "webview"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "tsc -p ./tsconfig.test.json && node --test out-test/test/*.test.js"
+  },
+  "devDependencies": {
+    "@types/diff": "^5.x",
+    "@types/node": "^20.19.37",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.x"
+  },
+  "dependencies": {
+    "diff": "^5.2.0",
+    "ignore": "^7.0.5"
+  }
+}

@@ -1,0 +1,251 @@
+import * as fs from 'fs';
+import * as path from 'path';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+
+const execFileAsync = promisify(execFile);
+
+interface Settings {
+  ignorePatterns: string[];
+  respectGitignore: boolean;
+}
+
+const DEFAULT_SETTINGS: Settings = {
+  ignorePatterns: ['.git'],
+  respectGitignore: true,
+};
+
+/**
+ * Manages all hunkwise persistent state via:
+ *   .vscode/hunkwise/settings.json  — enabled flag + ignorePatterns
+ *   .vscode/hunkwise/git/           — private git repo storing baselines
+ *
+ * The git repo uses the workspace root as its work tree but keeps all git
+ * metadata inside the hunkwise directory, so it never touches the project's
+ * own .git and works even when the project has no git at all.
+ *
+ *   GIT_DIR       = <hunkwiseDir>/git
+ *   GIT_WORK_TREE = <workspaceRoot>
+ *
+ * Each tracked file has exactly one entry in the single HEAD commit.
+ * Every mutation (snapshot / remove) rewrites that commit via --amend so
+ * the repo always has at most one commit and stays compact.
+ */
+export class HunkwiseGit {
+  private hunkwiseDir: string;
+  private gitDir: string;
+  private workTree: string;
+  private gitInitialized = false;
+
+  constructor(hunkwiseDir: string, workspaceRoot: string) {
+    this.hunkwiseDir = hunkwiseDir;
+    this.gitDir = path.join(hunkwiseDir, 'git');
+    this.workTree = workspaceRoot;
+  }
+
+  // ── env / low-level git ───────────────────────────────────────────────────
+
+  private get env(): NodeJS.ProcessEnv {
+    return {
+      ...process.env,
+      GIT_DIR: this.gitDir,
+      GIT_WORK_TREE: this.workTree,
+      GIT_TERMINAL_PROMPT: '0',
+    };
+  }
+
+  private async git(args: string[]): Promise<string> {
+    const { stdout } = await execFileAsync('git', args, {
+      cwd: this.workTree,
+      env: this.env,
+    });
+    return stdout;
+  }
+
+  // ── settings.json ─────────────────────────────────────────────────────────
+
+  private get settingsPath(): string {
+    return path.join(this.hunkwiseDir, 'settings.json');
+  }
+
+  loadSettings(): Settings {
+    try {
+      const raw = fs.readFileSync(this.settingsPath, 'utf-8');
+      const parsed = JSON.parse(raw) as Partial<Settings>;
+      return {
+        ignorePatterns: parsed.ignorePatterns ?? [...DEFAULT_SETTINGS.ignorePatterns],
+        respectGitignore: parsed.respectGitignore ?? DEFAULT_SETTINGS.respectGitignore,
+      };
+    } catch {
+      return { ignorePatterns: [...DEFAULT_SETTINGS.ignorePatterns], respectGitignore: DEFAULT_SETTINGS.respectGitignore };
+    }
+  }
+
+  saveSettings(settings: Settings): void {
+    try {
+      fs.mkdirSync(this.hunkwiseDir, { recursive: true });
+      fs.writeFileSync(this.settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  /**
+   * Merge defaults into existing settings.json.
+   * Fields already present are kept; missing fields are added.
+   * Returns the resulting settings.
+   */
+  mergeDefaultSettings(defaults: Settings): Settings {
+    const existing = fs.existsSync(this.settingsPath) ? this.loadSettings() : ({} as Partial<Settings>);
+    const merged: Settings = { ...defaults, ...existing };
+    this.saveSettings(merged);
+    return merged;
+  }
+
+  // ── git init ──────────────────────────────────────────────────────────────
+
+  async initGit(): Promise<void> {
+    if (this.gitInitialized) return;
+    if (!fs.existsSync(this.gitDir)) {
+      fs.mkdirSync(this.gitDir, { recursive: true });
+      await this.git(['init']);
+      await this.git(['config', 'user.email', 'hunkwise@localhost']);
+      await this.git(['config', 'user.name', 'hunkwise']);
+    }
+    this.gitInitialized = true;
+  }
+
+  private async hasHead(): Promise<boolean> {
+    try {
+      await this.git(['rev-parse', 'HEAD']);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // ── snapshot / remove ─────────────────────────────────────────────────────
+
+  /**
+   * Write content into the git index for filePath (no commit).
+   * Use commit() to persist.
+   */
+  async snapshot(filePath: string, content: string): Promise<void> {
+    await this.initGit();
+    const rel = path.relative(this.workTree, filePath);
+    try {
+      const hash = await new Promise<string>((resolve, reject) => {
+        const child = execFile(
+          'git',
+          ['hash-object', '-w', '--stdin'],
+          { env: this.env },
+          (err, stdout) => (err ? reject(err) : resolve(stdout.trim()))
+        );
+        child.stdin!.end(content, 'utf-8');
+      });
+      await this.git(['update-index', '--add', '--cacheinfo', `100644,${hash},${rel}`]);
+      await this.commit();
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  /**
+   * Remove a file's baseline from the git index and commit.
+   */
+  async removeFile(filePath: string): Promise<void> {
+    await this.initGit();
+    const rel = path.relative(this.workTree, filePath);
+    try {
+      await this.git(['update-index', '--remove', '--', rel]);
+      await this.commit();
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  /**
+   * Snapshot multiple files at once — writes all blobs to index then commits once.
+   * Much faster than calling snapshot() per file.
+   */
+  async snapshotBatch(files: { filePath: string; content: string }[]): Promise<void> {
+    if (files.length === 0) return;
+    await this.initGit();
+    try {
+      // Hash all blobs in parallel, then stage and commit once
+      const entries = await Promise.all(
+        files.map(({ filePath, content }) =>
+          new Promise<{ rel: string; hash: string }>((resolve, reject) => {
+            const rel = path.relative(this.workTree, filePath);
+            const child = execFile(
+              'git',
+              ['hash-object', '-w', '--stdin'],
+              { env: this.env },
+              (err, stdout) => (err ? reject(err) : resolve({ rel, hash: stdout.trim() }))
+            );
+            child.stdin!.end(content, 'utf-8');
+          })
+        )
+      );
+      for (const { rel, hash } of entries) {
+        await this.git(['update-index', '--add', '--cacheinfo', `100644,${hash},${rel}`]);
+      }
+      await this.commit();
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  private async commit(): Promise<void> {
+    if (await this.hasHead()) {
+      await this.git(['commit', '--amend', '--no-edit', '--allow-empty']);
+    } else {
+      await this.git(['commit', '-m', 'hunkwise baselines']);
+    }
+  }
+
+  /**
+   * Return the baseline content for a file from the git index, or undefined if not tracked.
+   * Reads from index (not HEAD) so newly staged files are immediately visible.
+   */
+  async getBaseline(filePath: string): Promise<string | undefined> {
+    await this.initGit();
+    const rel = path.relative(this.workTree, filePath);
+    try {
+      return await this.git(['show', `:${rel}`]);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Return absolute paths of all files currently tracked in HEAD.
+   */
+  async listTrackedFiles(): Promise<string[]> {
+    await this.initGit();
+    try {
+      const out = await this.git(['ls-tree', 'HEAD', '--name-only', '-r']);
+      return out
+        .split('\n')
+        .map(l => l.trim())
+        .filter(Boolean)
+        .map(rel => path.join(this.workTree, rel));
+    } catch {
+      return [];
+    }
+  }
+
+  // ── destroy ───────────────────────────────────────────────────────────────
+
+  /** Remove only the git directory (called on disable). settings.json is preserved. */
+  destroyGit(): void {
+    this.gitInitialized = false;
+    if (fs.existsSync(this.gitDir)) {
+      try {
+        fs.rmSync(this.gitDir, { recursive: true, force: true });
+      } catch {
+        // ignore
+      }
+    }
+  }
+}

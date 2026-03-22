@@ -1,0 +1,581 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  color: var(--vscode-foreground);
+  background: var(--vscode-editor-background, var(--vscode-panel-background));
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+#app {
+  transition: opacity 0.25s ease;
+}
+#app.fade-hidden {
+  opacity: 0;
+}
+
+/* ════════════════════════════════════════
+   Splash screen  (setup + idle)
+   ════════════════════════════════════════ */
+.splash-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 20px;
+  gap: 12px;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.splash-icon {
+  user-select: none;
+  opacity: 0.85;
+  margin-bottom: 2px;
+}
+
+.splash-tagline {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--vscode-foreground);
+  opacity: 0.75;
+  max-width: 220px;
+  line-height: 1.5;
+  margin-bottom: 6px;
+}
+
+/* ── Buttons ── */
+.btn-primary {
+  margin-top: 6px;
+  background: #2a7d3a;
+  color: #d4f0da;
+  border: 1px solid rgba(63,185,80,0.3);
+  padding: 6px 18px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: var(--vscode-font-family);
+  font-weight: 500;
+}
+.btn-primary:hover {
+  background: #256b31;
+}
+
+.btn-secondary {
+  background: var(--vscode-button-secondaryBackground, transparent);
+  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+  border: 1px solid var(--vscode-panel-border);
+  padding: 4px 12px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+  font-family: var(--vscode-font-family);
+}
+.btn-secondary:hover {
+  background: var(
+    --vscode-button-secondaryHoverBackground,
+    var(--vscode-toolbar-hoverBackground)
+  );
+}
+
+.btn-settings-entry {
+  margin-top: 4px;
+  background: transparent;
+  border: 1px solid var(--vscode-panel-border);
+  color: var(--vscode-foreground);
+  padding: 5px 16px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: var(--vscode-font-family);
+  opacity: 0.65;
+}
+.btn-settings-entry:hover {
+  opacity: 1;
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+/* ════════════════════════════════════════
+   Settings screen
+   ════════════════════════════════════════ */
+.settings-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 6px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  position: sticky;
+  top: 0;
+  background: var(--vscode-panel-background);
+  z-index: 10;
+}
+
+.btn-back {
+  background: transparent;
+  border: none;
+  color: var(--vscode-foreground);
+  cursor: pointer;
+  font-size: 11px;
+  font-family: var(--vscode-font-family);
+  padding: 3px 6px;
+  border-radius: 3px;
+  opacity: 0.65;
+}
+.btn-back:hover {
+  opacity: 1;
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.settings-header-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--vscode-foreground);
+}
+
+.settings-body {
+  padding: 0 12px 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-section {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+.settings-section:last-child {
+  border-bottom: none;
+}
+
+.settings-section-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--vscode-descriptionForeground);
+  margin-bottom: 10px;
+}
+
+.settings-section-desc {
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  line-height: 1.5;
+  margin-bottom: 10px;
+}
+
+/* ── Checkbox row ── */
+.settings-check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+.settings-checkbox {
+  margin-top: 2px;
+  flex-shrink: 0;
+  cursor: pointer;
+  accent-color: var(--vscode-focusBorder);
+}
+
+.settings-check-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-check-label {
+  font-size: 12px;
+  color: var(--vscode-foreground);
+  line-height: 1.4;
+}
+
+.settings-check-desc {
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  line-height: 1.4;
+}
+
+/* ── Pattern list ── */
+.pattern-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.pattern-row-inner {
+  display: flex;
+  align-items: center;
+  height: 26px;
+  border-radius: 3px;
+  padding: 0 2px 0 8px;
+  gap: 2px;
+  border: 1px solid transparent;
+}
+.pattern-row-inner:hover {
+  background: var(--vscode-list-hoverBackground);
+  border-color: var(--vscode-panel-border);
+}
+
+.pattern-text {
+  flex: 1;
+  font-size: 12px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  color: var(--vscode-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pattern-del {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--vscode-foreground);
+  padding: 2px 6px;
+  border-radius: 2px;
+  font-size: 11px;
+  line-height: 1;
+  opacity: 0;
+  flex-shrink: 0;
+  font-family: var(--vscode-font-family);
+}
+.pattern-del::before {
+  content: "✕";
+}
+.pattern-row-inner:hover .pattern-del {
+  opacity: 0.5;
+}
+.pattern-del:hover {
+  opacity: 1 !important;
+  color: #f85149;
+}
+
+.pattern-row-protected {
+  opacity: 0.55;
+  cursor: default;
+}
+.pattern-row-protected:hover {
+  background: transparent;
+  border-color: transparent;
+}
+.pattern-lock {
+  font-size: 10px;
+  flex-shrink: 0;
+  padding: 0 4px;
+  opacity: 0.6;
+}
+
+.pattern-add-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.pattern-input {
+  flex: 1;
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+  color: var(--vscode-input-foreground);
+  font-family: var(--vscode-font-family);
+  font-size: 12px;
+  padding: 5px 8px;
+  border-radius: 3px;
+  outline: none;
+  min-width: 0;
+}
+.pattern-input:focus {
+  border-color: var(--vscode-focusBorder);
+}
+.pattern-input::placeholder {
+  color: var(--vscode-input-placeholderForeground);
+}
+
+.pattern-add-btn {
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid var(--vscode-panel-border);
+  color: var(--vscode-foreground);
+  cursor: pointer;
+  font-size: 11px;
+  font-family: var(--vscode-font-family);
+  padding: 5px 12px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+.pattern-add-btn:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+/* ════════════════════════════════════════
+   Review screen
+   ════════════════════════════════════════ */
+.review-header {
+  display: flex;
+  align-items: center;
+  padding: 4px 8px 4px 10px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  gap: 6px;
+  position: sticky;
+  top: 0;
+  background: var(--vscode-panel-background);
+  z-index: 10;
+  min-height: 32px;
+}
+
+.review-summary {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.review-actions {
+  display: flex;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.stat-added {
+  color: #3fb950;
+  font-weight: 600;
+  font-size: 11px;
+}
+.stat-removed {
+  color: #f85149;
+  font-weight: 600;
+  font-size: 11px;
+}
+
+/* ── File group ── */
+
+.file-row {
+  display: flex;
+  align-items: center;
+  padding: 0 4px 0 6px;
+  cursor: pointer;
+  gap: 4px;
+  user-select: none;
+  height: 22px;
+}
+.file-row:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+.file-row:hover .btn-action {
+  opacity: 0.6;
+}
+
+.file-chevron {
+  font-size: 7px;
+  flex-shrink: 0;
+  width: 14px;
+  text-align: center;
+  color: var(--vscode-foreground);
+  opacity: 0.45;
+  line-height: 1;
+}
+
+/* File type badge — colored abbreviation */
+.file-badge {
+  flex-shrink: 0;
+  font-size: 8px;
+  font-weight: 700;
+  font-family: var(--vscode-editor-font-family, monospace);
+  color: #fff;
+  border-radius: 2px;
+  padding: 1px 2px;
+  line-height: 1.3;
+  letter-spacing: 0.02em;
+  min-width: 18px;
+  text-align: center;
+}
+
+.file-name {
+  font-size: 12px;
+  font-weight: 500;
+  flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 55%;
+}
+
+.file-dir {
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  opacity: 0.7;
+}
+
+.file-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.file-stats {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 56px;
+  justify-content: flex-end;
+}
+
+.file-actions {
+  display: flex;
+  gap: 0;
+}
+
+/* ── Action buttons ── */
+.btn-action {
+  background: transparent;
+  border: none;
+  color: var(--vscode-foreground);
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 13px;
+  font-family: var(--vscode-font-family);
+  line-height: 22px;
+  height: 22px;
+  cursor: pointer;
+  opacity: 0;
+}
+.file-row:hover .btn-action,
+.hunk-row:hover .btn-action {
+  opacity: 0.55;
+}
+.btn-action:hover {
+  opacity: 1 !important;
+  background: var(--vscode-toolbar-hoverBackground);
+}
+.btn-action-keep:hover {
+  color: #3fb950;
+}
+.btn-action-discard:hover {
+  color: #f85149;
+}
+
+/* ── Hunk list ── */
+.hunk-list {
+  background: color-mix(in srgb, var(--vscode-editor-background, var(--vscode-panel-background)) 85%, var(--vscode-panel-background));
+}
+
+.hunk-row {
+  display: flex;
+  align-items: center;
+  padding: 0 4px 0 30px;
+  gap: 4px;
+  cursor: pointer;
+  height: 20px;
+}
+.hunk-row:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.hunk-label {
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  font-family: var(--vscode-editor-font-family, monospace);
+  flex: 1;
+}
+
+.hunk-stats {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  min-width: 56px;
+  justify-content: flex-end;
+}
+
+.hunk-actions {
+  display: flex;
+  gap: 0;
+  flex-shrink: 0;
+}
+
+/* ── Review header action buttons (Accept / Discard) ── */
+.btn-review-accept,
+.btn-review-discard {
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+  font-family: var(--vscode-font-family);
+  padding: 3px 7px;
+  white-space: nowrap;
+}
+
+.btn-review-accept {
+  background: #2a7d3a;
+  color: #d4f0da;
+  border: 1px solid rgba(63, 185, 80, 0.3);
+}
+.btn-review-accept:hover {
+  background: #256b31;
+}
+
+.btn-review-discard {
+  background: rgba(248, 81, 73, 0.08);
+  color: #c97d7a;
+  border: 1px solid rgba(248, 81, 73, 0.25);
+}
+.btn-review-discard:hover {
+  background: rgba(248, 81, 73, 0.15);
+}
+
+/* ── File status badges ── */
+.file-status-badge {
+  font-size: 8px;
+  font-weight: 700;
+  padding: 0 3px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  line-height: 1.5;
+}
+.file-status-new {
+  background: rgba(63, 185, 80, 0.2);
+  color: #3fb950;
+}
+.file-status-deleted {
+  background: rgba(248, 81, 73, 0.15);
+  color: #f85149;
+}
+
+/* ── Disable button on idle screen ── */
+.btn-disable {
+  margin-top: 2px;
+  background: transparent;
+  border: 1px solid rgba(248, 81, 73, 0.5);
+  color: #f85149;
+  padding: 4px 14px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+  font-family: var(--vscode-font-family);
+  opacity: 0.7;
+}
+.btn-disable:hover {
+  opacity: 1;
+  background: rgba(248, 81, 73, 0.1);
+}
