@@ -26,7 +26,7 @@ npx skills add https://github.com/molon/hunkwise --skill install-hunkwise -g -y
 
 Then ask Claude Code to install it:
 
-> install hunkwise
+> /install-hunkwise
 
 ## Usage
 

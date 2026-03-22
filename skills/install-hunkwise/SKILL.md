@@ -53,17 +53,11 @@ npx @vscode/vsce package --allow-missing-repository
 
 This produces `hunkwise-<version>.vsix` in the project root. Do NOT use `--no-dependencies` — runtime dependencies (`ignore`, `diff`) must be bundled.
 
-### Step 4: Install the .vsix
+### Step 4: Detect installed VSCode builds and install the .vsix
 
-Find the `code` CLI for the installed VSCode build and run:
+First, detect which VSCode builds are installed, then install into **all** of them.
 
-```bash
-<code-cli> --install-extension hunkwise-*.vsix --force
-```
-
-If multiple `.vsix` files exist, use the most recently modified one.
-
-**Locating the `code` CLI by platform and build:**
+**Known CLI paths by platform:**
 
 | Platform | Build | CLI path |
 |----------|-------|----------|
@@ -71,26 +65,48 @@ If multiple `.vsix` files exist, use the most recently modified one.
 | macOS | Insiders | `/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code` |
 | Windows | Stable | `%LOCALAPPDATA%\Programs\Microsoft VS Code\bin\code.cmd` |
 | Windows | Insiders | `%LOCALAPPDATA%\Programs\Microsoft VS Code Insiders\bin\code-insiders.cmd` |
-| Linux | either | `code` or `code-insiders` (usually in PATH) |
+| Linux | Stable | `code` (in PATH) |
+| Linux | Insiders | `code-insiders` (in PATH) |
 
-If unsure which build the user has, check what's installed or ask.
+**macOS/Linux — detect and install into all present builds:**
 
-### Step 5: Configure proposed API (one-time setup)
+```bash
+VSIX=$(ls -t hunkwise-*.vsix | head -1)
+for CLI in \
+  "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" \
+  "/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code" \
+  "$(command -v code 2>/dev/null)" \
+  "$(command -v code-insiders 2>/dev/null)"; do
+  [ -x "$CLI" ] && "$CLI" --install-extension "$VSIX" --force
+done
+```
 
-Because hunkwise uses a proposed API, VSCode must be told to enable it via `argv.json` in the **user config directory** (not the app data directory). This is a one-time setup — skip if `"molon.hunkwise"` is already present.
+**Windows — detect and install into all present builds:**
 
-**`argv.json` locations:**
+```bat
+set VSIX=hunkwise-0.0.1.vsix
+set STABLE=%LOCALAPPDATA%\Programs\Microsoft VS Code\bin\code.cmd
+set INSIDERS=%LOCALAPPDATA%\Programs\Microsoft VS Code Insiders\bin\code-insiders.cmd
+if exist "%STABLE%" "%STABLE%" --install-extension %VSIX% --force
+if exist "%INSIDERS%" "%INSIDERS%" --install-extension %VSIX% --force
+```
+
+Replace `hunkwise-0.0.1.vsix` with the actual filename produced by vsce.
+
+### Step 5: Configure proposed API (one-time setup per build)
+
+Because hunkwise uses a proposed API, each installed VSCode build must be told to enable it via its own `argv.json` in the **user config directory**. Apply to every build detected in Step 4 — skip any build where `"molon.hunkwise"` is already present.
+
+**`argv.json` locations (same builds as Step 4):**
 
 | Platform | Build | Path |
 |----------|-------|------|
-| macOS | Stable | `~/.vscode/argv.json` |
-| macOS | Insiders | `~/.vscode-insiders/argv.json` |
+| macOS/Linux | Stable | `~/.vscode/argv.json` |
+| macOS/Linux | Insiders | `~/.vscode-insiders/argv.json` |
 | Windows | Stable | `%USERPROFILE%\.vscode\argv.json` |
 | Windows | Insiders | `%USERPROFILE%\.vscode-insiders\argv.json` |
-| Linux | Stable | `~/.vscode/argv.json` |
-| Linux | Insiders | `~/.vscode-insiders/argv.json` |
 
-Read the existing file, then add or merge the key — do not overwrite other fields:
+For each relevant `argv.json`: read the existing file, then add or merge `"enable-proposed-api"` — do not overwrite other fields:
 
 ```json
 {
