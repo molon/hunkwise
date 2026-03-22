@@ -21,7 +21,7 @@ hunkwise 使用了 [VSCode 提案 API](https://code.visualstudio.com/api/advance
 安装 `install-hunkwise` skill，它会自动完成编译、打包和 VSCode 配置：
 
 ```bash
-npx skills add molon/hunkwise -g -y
+npx skills add https://github.com/molon/hunkwise --skill install-hunkwise -g -y
 ```
 
 然后让 Claude Code 执行安装：

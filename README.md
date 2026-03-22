@@ -21,7 +21,7 @@ hunkwise uses a [proposed VSCode API](https://code.visualstudio.com/api/advanced
 Install the `install-hunkwise` skill, which handles compiling, packaging, and configuring VSCode automatically:
 
 ```bash
-npx skills add molon/hunkwise -g -y
+npx skills add https://github.com/molon/hunkwise --skill install-hunkwise -g -y
 ```
 
 Then ask Claude Code to install it:
