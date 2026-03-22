@@ -12,6 +12,22 @@ Per-hunk Accept/Discard for any file change in VSCode.
 - State persisted across VSCode restarts via a lightweight internal git repo
 - Respects `.gitignore` and custom ignore patterns
 
+## Installation
+
+hunkwise uses a [proposed VSCode API](https://code.visualstudio.com/api/advanced-topics/using-proposed-api) (`editorInsets`) and cannot be installed from the marketplace.
+
+### With Claude Code (recommended)
+
+Install the `install-hunkwise` skill, which handles compiling, packaging, and configuring VSCode automatically:
+
+```bash
+npx skills add molon/hunkwise -g -y
+```
+
+Then ask Claude Code to install it:
+
+> install hunkwise
+
 ## Usage
 
 ### Enable hunkwise
