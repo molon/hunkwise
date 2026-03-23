@@ -151,6 +151,27 @@ export class HunkwiseGit {
   }
 
   /**
+   * Rename a file's baseline entry in the git index and commit.
+   * Reuses the existing blob hash — no content re-hashing needed.
+   */
+  async renameFile(oldFilePath: string, newFilePath: string): Promise<void> {
+    await this.initGit();
+    const oldRel = path.relative(this.workTree, oldFilePath);
+    const newRel = path.relative(this.workTree, newFilePath);
+    try {
+      const lsOut = await this.git(['ls-files', '--stage', '--', oldRel]);
+      const match = lsOut.trim().match(/^(\d+) ([0-9a-f]+) \d+\t/);
+      if (!match) return; // not tracked — nothing to rename
+      const [, mode, hash] = match;
+      await this.git(['update-index', '--remove', '--', oldRel]);
+      await this.git(['update-index', '--add', '--cacheinfo', `${mode},${hash},${newRel}`]);
+      await this.commit();
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  /**
    * Remove a file's baseline from the git index and commit.
    */
   async removeFile(filePath: string): Promise<void> {

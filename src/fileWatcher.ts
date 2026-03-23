@@ -12,6 +12,8 @@ export class FileWatcher {
   private selfEditFiles: Set<string> = new Set();
   // Files being deleted by the user via VSCode (explorer / applyEdit)
   private pendingUserDeletes: Set<string> = new Set();
+  // Old paths of in-progress user renames — suppress onDiskDelete without extra git ops
+  private pendingRenameOldPaths: Set<string> = new Set();
   private debounceTimers: Map<string, NodeJS.Timeout> = new Map();
   private onStateChanged: () => void;
   private onIgnoreRulesChanged: (() => void) | undefined;
@@ -58,6 +60,31 @@ export class FileWatcher {
             this.pendingUserDeletes.delete(uri.fsPath);
           }
         }, 500);
+      }),
+      // onWillRenameFiles fires BEFORE the actual rename. Record paths so
+      // the subsequent onDiskDelete/onDiskCreate events are suppressed, and
+      // migrate state+git. UI refresh is deferred to onDidRenameFiles because
+      // the new file doesn't exist on disk yet when onWill fires.
+      vscode.workspace.onWillRenameFiles(e => {
+        for (const { oldUri, newUri } of e.files) {
+          const oldPath = oldUri.fsPath;
+          const newPath = newUri.fsPath;
+          if (!this.stateManager.enabled) continue;
+          this.pendingRenameOldPaths.add(oldPath);
+          this.selfEditFiles.add(newPath);
+          this.stateManager.renameFile(oldPath, newPath);
+        }
+      }),
+      vscode.workspace.onDidRenameFiles(e => {
+        let needsRefresh = false;
+        for (const { oldUri, newUri } of e.files) {
+          this.pendingRenameOldPaths.delete(oldUri.fsPath);
+          this.selfEditFiles.delete(newUri.fsPath);
+          if (this.stateManager.getFile(newUri.fsPath)) {
+            needsRefresh = true;
+          }
+        }
+        if (needsRefresh) this.onStateChanged();
       }),
     );
 
@@ -154,6 +181,12 @@ export class FileWatcher {
 
     const fileState = this.stateManager.getFile(filePath);
     const git = this.stateManager.git;
+
+    if (this.pendingRenameOldPaths.has(filePath)) {
+      // User-initiated rename — renameFile already migrated state+git, nothing to do
+      this.pendingRenameOldPaths.delete(filePath);
+      return;
+    }
 
     if (this.pendingUserDeletes.has(filePath)) {
       // User-initiated delete (explorer / VSCode API) — treat as manual, update baseline
@@ -265,6 +298,7 @@ export class FileWatcher {
     }
     this.debounceTimers.clear();
     this.pendingUserDeletes.clear();
+    this.pendingRenameOldPaths.clear();
     this.disposables.forEach(d => d.dispose());
   }
 }

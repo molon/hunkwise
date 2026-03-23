@@ -29,10 +29,6 @@
         "title": "hunkwise: Disable"
       },
       {
-        "command": "hunkwise.startTracking",
-        "title": "hunkwise: Start Tracking Current File"
-      },
-      {
         "command": "hunkwise.openSettings",
         "title": "hunkwise: Settings",
         "icon": "$(settings-gear)"

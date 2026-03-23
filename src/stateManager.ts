@@ -97,6 +97,18 @@ export class StateManager {
     }
   }
 
+  renameFile(oldFilePath: string, newFilePath: string): void {
+    const fileState = this.state.get(oldFilePath);
+    this.state.delete(oldFilePath);
+    if (fileState) {
+      this.state.set(newFilePath, fileState);
+    }
+    if (this._git) {
+      const g = this._git;
+      this.gitQueue = this.gitQueue.then(() => g.renameFile(oldFilePath, newFilePath)).catch(() => {});
+    }
+  }
+
   getAllFiles(): ReadonlyMap<string, FileState> {
     return this.state;
   }
