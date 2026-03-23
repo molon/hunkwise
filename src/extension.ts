@@ -10,10 +10,9 @@ import { initLog, log } from './log';
 
 export async function activate(context: vscode.ExtensionContext): Promise<{ getReviewPanel: () => ReviewPanel | undefined }> {
   initLog();
-  log('activate');
+  const ext = vscode.extensions.getExtension('molon.hunkwise');
+  log(`activate v${ext?.packageJSON?.version ?? '?'}`);
   const stateManager = new StateManager();
-  await stateManager.load();
-  log(`loaded state: enabled=${stateManager.enabled}, files=${stateManager.getAllFiles().size}`);
 
   // Content provider for showing deleted file baselines in diff view
   context.subscriptions.push(
@@ -37,7 +36,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
   let syncIgnore: () => void;
   const fileWatcher = new FileWatcher(stateManager, onStateChanged, () => syncIgnore());
   syncIgnore = () => stateManager.syncIgnoreState((fp, isDir) => fileWatcher.shouldIgnore(fp, isDir)).then(onStateChanged);
+  // Register watcher early so gitignoreMatcher is initialized before load()
   fileWatcher.register(context);
+
+  await stateManager.load((fp, isDir) => fileWatcher.shouldIgnore(fp, isDir));
+  log(`loaded state: enabled=${stateManager.enabled}, files=${stateManager.getAllFiles().size}`);
 
   decorationManager = new DecorationManager(stateManager, (command, filePath, hId) => {
     if (command === 'accept') {

@@ -33,10 +33,15 @@ export class FileWatcher {
   register(context: vscode.ExtensionContext): void {
     this.loadGitignore();
 
-    const gitignoreWatcher = vscode.workspace.createFileSystemWatcher('**/.gitignore');
+    // Only watch the root .gitignore — sub-directory .gitignore changes (e.g. from
+    // integration tests in workspace sub-folders) must not reset the matcher or trigger sync.
+    const rootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const gitignoreWatcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(rootPath || '', '.gitignore')
+    );
     gitignoreWatcher.onDidChange(() => { this.loadGitignore(); this.onIgnoreRulesChanged?.(); });
     gitignoreWatcher.onDidCreate(() => { this.loadGitignore(); this.onIgnoreRulesChanged?.(); });
-    gitignoreWatcher.onDidDelete(() => { this.gitignoreMatcher = ignoreLib(); this.onIgnoreRulesChanged?.(); });
+    gitignoreWatcher.onDidDelete(() => { this.loadGitignore(); this.onIgnoreRulesChanged?.(); });
     this.disposables.push(gitignoreWatcher);
 
     const watcher = vscode.workspace.createFileSystemWatcher('**/*');

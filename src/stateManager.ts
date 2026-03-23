@@ -51,7 +51,7 @@ export class StateManager {
    * Must be called once at activation. Async because reading baselines
    * from git requires exec calls.
    */
-  async load(): Promise<void> {
+  async load(shouldIgnore?: (filePath: string, isDirectory?: boolean) => boolean): Promise<void> {
     const g = this.ensureGit();
     if (!g) return;
 
@@ -67,12 +67,22 @@ export class StateManager {
     // Initialize git (idempotent) then restore in-memory state from HEAD
     await g.initGit();
     const tracked = await g.listTrackedFiles();
+    const ignored: string[] = [];
     await Promise.all(tracked.map(async filePath => {
+      if (shouldIgnore?.(filePath)) {
+        ignored.push(filePath);
+        return;
+      }
       const baseline = await g.getBaseline(filePath);
       if (baseline !== undefined) {
         this.state.set(filePath, { status: 'reviewing', baseline });
       }
     }));
+    // Clean up stale ignored entries from the git repo
+    if (ignored.length > 0) {
+      log(`load: removing ${ignored.length} ignored file(s) from git`);
+      this.gitQueue = this.gitQueue.then(() => g.removeFileBatch(ignored)).catch(() => {});
+    }
   }
 
   // ── file state ────────────────────────────────────────────────────────────

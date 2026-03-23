@@ -397,6 +397,51 @@ suite('hunkwise ignore/gitignore integration', function () {
       'previously reviewing file should remain removed from git');
   });
 
+  test('externally created files in gitignored directory are not tracked or stored in git', async () => {
+    const root = getWorkspaceRoot();
+
+    // Set up .gitignore with a directory pattern BEFORE enabling hunkwise
+    // This mirrors the real scenario: .gitignore has `.vscode-test/` and
+    // hunkwise is enabled, then an external process (e.g. integration tests)
+    // creates files under that directory.
+    writeFileExternally(path.join(root, '.gitignore'), '.vscode-test/\n');
+    await sleep(1000); // let watcher pick up .gitignore
+
+    // Create a normal file that should be tracked
+    writeFileExternally(path.join(root, 'normal.txt'), 'normal content\n');
+
+    await enableHunkwise();
+    await waitForCondition(() => gitListTracked(root).includes('normal.txt'), 8000);
+
+    // Now externally create files under the ignored directory
+    // (simulates VSCode test runner writing Session Storage, TransportSecurity, etc.)
+    await writeFileViaVSCode(
+      path.join(root, '.vscode-test', 'user-data', 'Session Storage', 'LOG'),
+      'some log data\nline 2\nline 3\n'
+    );
+    await writeFileViaVSCode(
+      path.join(root, '.vscode-test', 'user-data', 'Session Storage', 'LOG.old'),
+      'old log data\nline 2\nline 3\n'
+    );
+    await writeFileViaVSCode(
+      path.join(root, '.vscode-test', 'user-data', 'TransportSecurity'),
+      'transport data\n'
+    );
+    await sleep(2000); // wait for any FileSystemWatcher events to be processed
+
+    // Verify: none of these files should appear in hunkwise git
+    const tracked = gitListTracked(root);
+    assert.ok(!tracked.includes('.vscode-test/user-data/Session Storage/LOG'),
+      `Session Storage/LOG should NOT be tracked (tracked: ${tracked.join(', ')})`);
+    assert.ok(!tracked.includes('.vscode-test/user-data/Session Storage/LOG.old'),
+      `Session Storage/LOG.old should NOT be tracked`);
+    assert.ok(!tracked.includes('.vscode-test/user-data/TransportSecurity'),
+      `TransportSecurity should NOT be tracked`);
+
+    // Verify: normal.txt should still be tracked
+    assert.ok(tracked.includes('normal.txt'), 'normal.txt should still be tracked');
+  });
+
   test('directory-only gitignore patterns are cleaned by syncIgnoreState', async () => {
     const root = getWorkspaceRoot();
 
