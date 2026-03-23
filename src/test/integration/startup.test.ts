@@ -180,6 +180,63 @@ suite('hunkwise startup & loading integration', function () {
     }
   });
 
+  test('startup sync removes many stale ignored files efficiently via batch', async () => {
+    const root = getWorkspaceRoot();
+
+    // Create .gitignore that ignores a directory
+    writeFileExternally(path.join(root, '.gitignore'), 'bulk-dir/\n');
+    await sleep(1000);
+
+    // Create a normal file and enable
+    writeFileExternally(path.join(root, 'keep.txt'), 'keep\n');
+    await enableHunkwise();
+    await waitForCondition(() => gitListTracked(root).includes('keep.txt'), 5000);
+
+    // Inject 500 stale files directly into hunkwise git index,
+    // simulating files tracked before a directory was added to .gitignore.
+    const env = hunkwiseGitEnv(root);
+    const hash = execSync('git hash-object -w --stdin', {
+      cwd: root, env, encoding: 'utf-8', input: 'stale content\n',
+    }).trim();
+
+    // Build a single update-index call with all 500 files for fast injection
+    const cacheArgs: string[] = [];
+    for (let i = 0; i < 500; i++) {
+      cacheArgs.push('--add', '--cacheinfo', `100644,${hash},bulk-dir/file-${i}.txt`);
+    }
+    execSync(`git update-index ${cacheArgs.join(' ')}`, { cwd: root, env });
+    execSync('git commit --amend --no-edit --allow-empty', { cwd: root, env });
+
+    // Confirm stale files are in git
+    let tracked = gitListTracked(root);
+    assert.ok(tracked.includes('bulk-dir/file-0.txt'), 'stale files should be in git after injection');
+    assert.ok(tracked.includes('bulk-dir/file-499.txt'), 'last stale file should be in git');
+    assert.ok(tracked.length >= 501, `should have 501+ tracked files, got ${tracked.length}`);
+
+    // Trigger syncIgnoreState — this must complete within the test timeout (30s).
+    // Before the batch fix this would take minutes (500 individual git remove + commit).
+    const start = Date.now();
+    await vscode.commands.executeCommand('hunkwise.setRespectGitignore', true);
+
+    await waitForCondition(() => {
+      const t = gitListTracked(root);
+      return !t.includes('bulk-dir/file-0.txt') && !t.includes('bulk-dir/file-499.txt');
+    }, 20000, 500);
+
+    const elapsed = Date.now() - start;
+
+    // Verify final state
+    tracked = gitListTracked(root);
+    assert.ok(!tracked.includes('bulk-dir/file-0.txt'), 'stale file 0 should be removed');
+    assert.ok(!tracked.includes('bulk-dir/file-499.txt'), 'stale file 499 should be removed');
+    assert.ok(tracked.includes('keep.txt'), 'keep.txt should still be tracked');
+
+    // The batch operation should complete in well under 30 seconds.
+    // Individual operations would take ~2s each × 500 = ~16 minutes.
+    assert.ok(elapsed < 15000,
+      `batch removal of 500 files took ${elapsed}ms, expected < 15000ms`);
+  });
+
   test('startup sync with error does not leave panel stuck in loading', async () => {
     const root = getWorkspaceRoot();
 

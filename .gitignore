@@ -5,3 +5,4 @@ out-integration/
 node_modules/
 .vscode/hunkwise/
 *.vsix
+src/test/integration/workspace/

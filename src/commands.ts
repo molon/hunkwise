@@ -6,6 +6,7 @@ import { FileWatcher } from './fileWatcher';
 import { ReviewPanel } from './reviewPanel';
 import { computeHunks, hunkId } from './diffEngine';
 import { upsertGitignore } from './gitignoreManager';
+import { log } from './log';
 
 export function registerCommands(
   context: vscode.ExtensionContext,
@@ -24,13 +25,13 @@ export function registerCommands(
     vscode.commands.registerCommand('hunkwise.setIgnorePatterns', async (patterns: string[]) => {
       stateManager.setIgnorePatterns(patterns);
       onStateChanged();
-      await stateManager.syncIgnoreState(fp => fileWatcher.shouldIgnore(fp));
+      await stateManager.syncIgnoreState((fp, isDir) => fileWatcher.shouldIgnore(fp, isDir));
       onStateChanged();
     }),
     vscode.commands.registerCommand('hunkwise.setRespectGitignore', async (value: boolean) => {
       stateManager.setRespectGitignore(value);
       onStateChanged();
-      await stateManager.syncIgnoreState(fp => fileWatcher.shouldIgnore(fp));
+      await stateManager.syncIgnoreState((fp, isDir) => fileWatcher.shouldIgnore(fp, isDir));
       onStateChanged();
     }),
   );
@@ -42,6 +43,7 @@ async function enableHunkwise(
   reviewPanel: ReviewPanel,
   onStateChanged: () => void
 ): Promise<void> {
+  log('enable');
   reviewPanel.setLoading(true);
   try {
     await Promise.all([
@@ -49,7 +51,7 @@ async function enableHunkwise(
       (async () => {
         await stateManager.setEnabled(true);
         try { upsertGitignore(); } catch { /* non-fatal */ }
-        await stateManager.snapshotWorkspace(fp => fileWatcher.shouldIgnore(fp));
+        await stateManager.snapshotWorkspace((fp, isDir) => fileWatcher.shouldIgnore(fp, isDir));
       })(),
     ]);
   } finally {
@@ -62,6 +64,7 @@ async function disableHunkwise(
   stateManager: StateManager,
   onStateChanged: () => void
 ): Promise<void> {
+  log('disable');
   stateManager.setEnabled(false);
   onStateChanged();
 }

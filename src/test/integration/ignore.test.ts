@@ -326,4 +326,100 @@ suite('hunkwise ignore/gitignore integration', function () {
       `stale-dir/old.txt should be removed after sync (tracked: ${tracked.join(', ')})`);
     assert.ok(tracked.includes('normal.txt'), 'normal.txt should still be tracked');
   });
+
+  test('directory-only gitignore patterns (trailing slash) prevent tracking on enable', async () => {
+    const root = getWorkspaceRoot();
+
+    // .gitignore with directory-only pattern (trailing slash)
+    writeFileExternally(path.join(root, '.gitignore'), 'build-output/\n');
+    await sleep(1000);
+
+    // Create files inside the ignored directory and a normal file
+    writeFileExternally(path.join(root, 'build-output', 'bundle.js'), 'compiled code\n');
+    writeFileExternally(path.join(root, 'build-output', 'sub', 'chunk.js'), 'chunk code\n');
+    // A file with similar name but NOT a directory should NOT be ignored
+    writeFileExternally(path.join(root, 'build-output.log'), 'log data\n');
+    writeFileExternally(path.join(root, 'src', 'index.ts'), 'source\n');
+
+    await enableHunkwise();
+
+    await waitForCondition(() => gitListTracked(root).includes('src/index.ts'), 8000);
+    await sleep(1000);
+
+    const tracked = gitListTracked(root);
+    assert.ok(tracked.includes('src/index.ts'), 'src/index.ts should be tracked');
+    assert.ok(tracked.includes('build-output.log'), 'build-output.log should be tracked (not a directory)');
+    assert.ok(!tracked.includes('build-output/bundle.js'),
+      `build-output/bundle.js should NOT be tracked (tracked: ${tracked.join(', ')})`);
+    assert.ok(!tracked.includes('build-output/sub/chunk.js'),
+      'build-output/sub/chunk.js should NOT be tracked');
+  });
+
+  test('syncIgnoreState removes in-memory reviewing state for newly-ignored files without git baseline', async () => {
+    const root = getWorkspaceRoot();
+
+    // Create a file and enable hunkwise so it gets a baseline
+    writeFileExternally(path.join(root, 'keep.txt'), 'keep\n');
+    writeFileExternally(path.join(root, 'tmpdir', 'tracked.txt'), 'original\n');
+    await enableHunkwise();
+    await waitForCondition(() => {
+      const t = gitListTracked(root);
+      return t.includes('keep.txt') && t.includes('tmpdir/tracked.txt');
+    }, 8000);
+
+    // Externally modify tmpdir/tracked.txt so it enters reviewing state (has diff vs baseline)
+    writeFileExternally(path.join(root, 'tmpdir', 'tracked.txt'), 'modified by tool\n');
+    await sleep(1000);
+
+    // Now add tmpdir/ to .gitignore — syncIgnoreState should:
+    // 1. Remove git baseline for tmpdir/tracked.txt
+    // 2. Remove in-memory reviewing state for tmpdir/tracked.txt
+    await writeFileViaVSCode(path.join(root, '.gitignore'), 'tmpdir/\n');
+
+    // Wait for git to remove the baseline
+    await waitForCondition(() => !gitListTracked(root).includes('tmpdir/tracked.txt'), 15000, 500);
+
+    const tracked = gitListTracked(root);
+    assert.ok(!tracked.includes('tmpdir/tracked.txt'),
+      'tmpdir/tracked.txt should be removed from git after syncIgnoreState');
+    assert.ok(tracked.includes('keep.txt'), 'keep.txt should still be tracked');
+
+    // Now externally write a NEW file in the ignored dir.
+    // If in-memory state was properly cleared for tmpdir/tracked.txt AND
+    // shouldIgnore works for new files under tmpdir/, neither file should appear in git.
+    writeFileExternally(path.join(root, 'tmpdir', 'new.txt'), 'new content\n');
+    await sleep(1500);
+
+    const tracked2 = gitListTracked(root);
+    assert.ok(!tracked2.includes('tmpdir/new.txt'),
+      'new file in ignored dir should not be tracked after syncIgnoreState cleared the dir');
+    assert.ok(!tracked2.includes('tmpdir/tracked.txt'),
+      'previously reviewing file should remain removed from git');
+  });
+
+  test('directory-only gitignore patterns are cleaned by syncIgnoreState', async () => {
+    const root = getWorkspaceRoot();
+
+    // Enable without .gitignore first
+    writeFileExternally(path.join(root, 'dist', 'app.js'), 'app code\n');
+    writeFileExternally(path.join(root, 'keep.txt'), 'keep\n');
+
+    await enableHunkwise();
+    await waitForCondition(() => {
+      const tracked = gitListTracked(root);
+      return tracked.includes('dist/app.js') && tracked.includes('keep.txt');
+    }, 8000);
+
+    // Now add dist/ to .gitignore — syncIgnoreState should remove dist/app.js
+    await writeFileViaVSCode(path.join(root, '.gitignore'), 'dist/\n');
+
+    await waitForCondition(() => {
+      return !gitListTracked(root).includes('dist/app.js');
+    }, 15000, 500);
+
+    const tracked = gitListTracked(root);
+    assert.ok(!tracked.includes('dist/app.js'),
+      `dist/app.js should be removed after adding dist/ to .gitignore (tracked: ${tracked.join(', ')})`);
+    assert.ok(tracked.includes('keep.txt'), 'keep.txt should still be tracked');
+  });
 });

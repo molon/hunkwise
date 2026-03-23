@@ -6,6 +6,7 @@ const ignoreLib: ((options?: { ignoreCase?: boolean }) => import('ignore').Ignor
 type Ignore = import('ignore').Ignore;
 import { StateManager } from './stateManager';
 import { computeHunks } from './diffEngine';
+import { log } from './log';
 
 export class FileWatcher {
   private disposables: vscode.Disposable[] = [];
@@ -70,6 +71,7 @@ export class FileWatcher {
           const oldPath = oldUri.fsPath;
           const newPath = newUri.fsPath;
           if (!this.stateManager.enabled) continue;
+          log(`rename: ${path.basename(oldPath)} → ${path.basename(newPath)}`);
           this.pendingRenameOldPaths.add(oldPath);
           this.selfEditFiles.add(newPath);
           this.stateManager.renameFile(oldPath, newPath);
@@ -100,12 +102,37 @@ export class FileWatcher {
     const rootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     this.gitignoreMatcher = ignoreLib();
     if (!rootPath) return;
+
+    // Load global gitignore (core.excludesfile or default ~/.config/git/ignore)
+    try {
+      const { execFileSync } = require('child_process');
+      const globalPath = (execFileSync('git', ['config', '--global', 'core.excludesfile'], {
+        encoding: 'utf-8',
+        timeout: 3000,
+      }) as string).trim();
+      if (globalPath) {
+        const resolved = globalPath.startsWith('~')
+          ? path.join(require('os').homedir(), globalPath.slice(1))
+          : globalPath;
+        try {
+          this.gitignoreMatcher.add(fs.readFileSync(resolved, 'utf-8'));
+        } catch { /* file may not exist */ }
+      }
+    } catch {
+      // No core.excludesfile configured — try default location
+      try {
+        const defaultPath = path.join(require('os').homedir(), '.config', 'git', 'ignore');
+        this.gitignoreMatcher.add(fs.readFileSync(defaultPath, 'utf-8'));
+      } catch { /* no global gitignore */ }
+    }
+
+    // Load workspace .gitignore
     const gitignorePath = path.join(rootPath, '.gitignore');
     try {
       const content = fs.readFileSync(gitignorePath, 'utf-8');
       this.gitignoreMatcher.add(content);
     } catch {
-      // No .gitignore — matcher stays empty
+      // No .gitignore — matcher stays empty (global rules still active)
     }
   }
 
@@ -117,7 +144,7 @@ export class FileWatcher {
     this.selfEditFiles.delete(filePath);
   }
 
-  shouldIgnore(filePath: string): boolean {
+  shouldIgnore(filePath: string, isDirectory?: boolean): boolean {
     const hunkwiseDir = this.stateManager.dir;
     if (hunkwiseDir && filePath.startsWith(hunkwiseDir + path.sep)) return true;
     if (hunkwiseDir && filePath === hunkwiseDir) return true;
@@ -125,8 +152,13 @@ export class FileWatcher {
     const rootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!rootPath) return false;
 
-    const relPath = path.relative(rootPath, filePath);
+    let relPath = path.relative(rootPath, filePath);
     if (relPath.startsWith('..')) return false;
+
+    // The `ignore` library requires a trailing slash to match directory-only
+    // patterns (e.g. `.vscode-test/`). Without it, `ignores('.vscode-test')`
+    // returns false even though the pattern is meant to ignore that directory.
+    if (isDirectory) relPath += '/';
 
     const userMatcher = ignoreLib().add(this.stateManager.ignorePatterns);
     if (userMatcher.ignores(relPath)) return true;
@@ -281,6 +313,10 @@ export class FileWatcher {
 
   private enterReviewing(filePath: string, baseline: string, current: string): void {
     if (computeHunks(baseline, current).length === 0) return;
+    const isNew = baseline === '';
+    const isDeleted = current === '';
+    const tag = isNew ? ' (new)' : isDeleted ? ' (deleted)' : '';
+    log(`reviewing: ${path.basename(filePath)}${tag}`);
     this.stateManager.setFile(filePath, { status: 'reviewing', baseline });
     this.onStateChanged();
   }

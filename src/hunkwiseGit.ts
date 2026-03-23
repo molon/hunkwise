@@ -193,7 +193,7 @@ export class HunkwiseGit {
     if (files.length === 0) return;
     await this.initGit();
     try {
-      // Hash all blobs in parallel, then stage and commit once
+      // Hash all blobs in parallel, then stage all at once and commit once
       const entries = await Promise.all(
         files.map(({ filePath, content }) =>
           new Promise<{ rel: string; hash: string }>((resolve, reject) => {
@@ -208,8 +208,31 @@ export class HunkwiseGit {
           })
         )
       );
-      for (const { rel, hash } of entries) {
-        await this.git(['update-index', '--add', '--cacheinfo', `100644,${hash},${rel}`]);
+      // Stage all entries, chunked to avoid OS argument length limits
+      const CHUNK = 100;
+      for (let i = 0; i < entries.length; i += CHUNK) {
+        const cacheArgs = entries.slice(i, i + CHUNK).flatMap(({ rel, hash }) => ['--add', '--cacheinfo', `100644,${hash},${rel}`]);
+        await this.git(['update-index', ...cacheArgs]);
+      }
+      await this.commit();
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  /**
+   * Remove multiple files from the git index in a single operation and commit once.
+   * Much faster than calling removeFile() per file.
+   */
+  async removeFileBatch(filePaths: string[]): Promise<void> {
+    if (filePaths.length === 0) return;
+    await this.initGit();
+    try {
+      const rels = filePaths.map(fp => path.relative(this.workTree, fp));
+      // Chunk to avoid exceeding OS argument length limits (~250KB on macOS)
+      const CHUNK = 200;
+      for (let i = 0; i < rels.length; i += CHUNK) {
+        await this.git(['update-index', '--force-remove', '--', ...rels.slice(i, i + CHUNK)]);
       }
       await this.commit();
     } catch {

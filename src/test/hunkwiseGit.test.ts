@@ -115,6 +115,42 @@ describe('HunkwiseGit', () => {
     });
   });
 
+  describe('removeFileBatch', () => {
+    it('removes multiple tracked files in one operation', async () => {
+      const file1 = path.join(tmpDir, 'batch-rm-1.txt');
+      const file2 = path.join(tmpDir, 'batch-rm-2.txt');
+      const file3 = path.join(tmpDir, 'batch-rm-3.txt');
+      await git.snapshotBatch([
+        { filePath: file1, content: 'a\n' },
+        { filePath: file2, content: 'b\n' },
+        { filePath: file3, content: 'c\n' },
+      ]);
+      assert.equal(await git.getBaseline(file1), 'a\n');
+      assert.equal(await git.getBaseline(file2), 'b\n');
+      assert.equal(await git.getBaseline(file3), 'c\n');
+      await git.removeFileBatch([file1, file2, file3]);
+      assert.equal(await git.getBaseline(file1), undefined);
+      assert.equal(await git.getBaseline(file2), undefined);
+      assert.equal(await git.getBaseline(file3), undefined);
+    });
+
+    it('is a no-op for empty array', async () => {
+      await git.removeFileBatch([]); // should not throw
+    });
+
+    it('leaves unrelated files intact', async () => {
+      const keep = path.join(tmpDir, 'batch-rm-keep.txt');
+      const remove = path.join(tmpDir, 'batch-rm-gone.txt');
+      await git.snapshotBatch([
+        { filePath: keep, content: 'keep\n' },
+        { filePath: remove, content: 'gone\n' },
+      ]);
+      await git.removeFileBatch([remove]);
+      assert.equal(await git.getBaseline(keep), 'keep\n');
+      assert.equal(await git.getBaseline(remove), undefined);
+    });
+  });
+
   describe('renameFile', () => {
     it('moves baseline from old path to new path', async () => {
       const oldPath = path.join(tmpDir, 'rename-old.txt');

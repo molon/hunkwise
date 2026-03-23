@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { FileState } from './types';
 import { HunkwiseGit } from './hunkwiseGit';
+import { log } from './log';
 
 const DEFAULT_IGNORE_PATTERNS = process.platform === 'darwin' ? ['.git', '.DS_Store'] : ['.git'];
 
@@ -164,7 +165,7 @@ export class StateManager {
    * Only snapshots files that don't already have a baseline recorded.
    * Should be called once after enable.
    */
-  async snapshotWorkspace(shouldIgnore: (filePath: string) => boolean): Promise<void> {
+  async snapshotWorkspace(shouldIgnore: (filePath: string, isDirectory?: boolean) => boolean): Promise<void> {
     const g = this._git;
     if (!g || !this.workspaceRoot) return;
 
@@ -178,8 +179,9 @@ export class StateManager {
       }
       for (const entry of entries) {
         const full = path.join(dir, entry.name);
-        if (shouldIgnore(full)) continue;
-        if (entry.isDirectory()) {
+        const isDir = entry.isDirectory();
+        if (shouldIgnore(full, isDir)) continue;
+        if (isDir) {
           results = results.concat(await collect(full));
         } else if (entry.isFile()) {
           results.push(full);
@@ -235,7 +237,7 @@ export class StateManager {
    * - Snapshots files newly allowed by current rules but not yet tracked.
    * Called after ignorePatterns / respectGitignore / .gitignore changes.
    */
-  async syncIgnoreState(shouldIgnore: (filePath: string) => boolean): Promise<void> {
+  async syncIgnoreState(shouldIgnore: (filePath: string, isDirectory?: boolean) => boolean): Promise<void> {
     const g = this._git;
     if (!g || !this.workspaceRoot) return;
 
@@ -249,8 +251,9 @@ export class StateManager {
       }
       for (const entry of entries) {
         const full = path.join(dir, entry.name);
-        if (shouldIgnore(full)) continue;
-        if (entry.isDirectory()) {
+        const isDir = entry.isDirectory();
+        if (shouldIgnore(full, isDir)) continue;
+        if (isDir) {
           results = results.concat(await collect(full));
         } else if (entry.isFile()) {
           results.push(full);
@@ -264,23 +267,37 @@ export class StateManager {
       g.listTrackedFiles(),
     ]);
 
-    // Remove tracked files that are now ignored
+    // Remove tracked files that are now ignored (from git and from in-memory state)
     const allowedSet = new Set(allowedFiles);
     const toRemove = trackedFiles.filter(fp => !allowedSet.has(fp));
+    // Also remove in-memory state entries that are ignored but have no git baseline (e.g. new files in reviewing)
+    for (const fp of this.state.keys()) {
+      if (!allowedSet.has(fp) && !toRemove.includes(fp)) {
+        this.state.delete(fp);
+      }
+    }
+    if (toRemove.length > 0) {
+      log(`syncIgnoreState: removing ${toRemove.length} file(s)`);
+    }
     for (const fp of toRemove) {
       this.state.delete(fp);
     }
     if (toRemove.length > 0) {
+      // Drain any previously queued git ops before the batch remove so we
+      // can measure how long the actual batch takes.
       this.gitQueue = this.gitQueue.then(async () => {
-        for (const fp of toRemove) {
-          await g.removeFile(fp);
-        }
+        log('syncIgnoreState: gitQueue drained, starting removeFileBatch');
+        await g.removeFileBatch(toRemove);
+        log('syncIgnoreState: removeFileBatch done');
       }).catch(() => {});
     }
 
     // Add newly allowed files not yet tracked
     const trackedSet = new Set(trackedFiles);
     const toAdd = allowedFiles.filter(fp => !trackedSet.has(fp));
+    if (toAdd.length > 0) {
+      log(`syncIgnoreState: adding ${toAdd.length} file(s)`);
+    }
     if (toAdd.length > 0) {
       const batch: { filePath: string; content: string }[] = [];
       await Promise.all(toAdd.map(async fp => {

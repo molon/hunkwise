@@ -6,10 +6,14 @@ import { FileWatcher } from './fileWatcher';
 import { DecorationManager } from './decorationManager';
 import { ReviewPanel } from './reviewPanel';
 import { registerCommands, acceptHunk, discardHunk } from './commands';
+import { initLog, log } from './log';
 
 export async function activate(context: vscode.ExtensionContext): Promise<{ getReviewPanel: () => ReviewPanel | undefined }> {
+  initLog();
+  log('activate');
   const stateManager = new StateManager();
   await stateManager.load();
+  log(`loaded state: enabled=${stateManager.enabled}, files=${stateManager.getAllFiles().size}`);
 
   // Content provider for showing deleted file baselines in diff view
   context.subscriptions.push(
@@ -32,7 +36,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
 
   let syncIgnore: () => void;
   const fileWatcher = new FileWatcher(stateManager, onStateChanged, () => syncIgnore());
-  syncIgnore = () => stateManager.syncIgnoreState(fp => fileWatcher.shouldIgnore(fp)).then(onStateChanged);
+  syncIgnore = () => stateManager.syncIgnoreState((fp, isDir) => fileWatcher.shouldIgnore(fp, isDir)).then(onStateChanged);
   fileWatcher.register(context);
 
   decorationManager = new DecorationManager(stateManager, (command, filePath, hId) => {
@@ -78,13 +82,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
   // the panel doesn't flash stale data before the sync completes.
   if (stateManager.enabled) {
     reviewPanel.setLoading(true);
+    log('startup sync: begin');
     Promise.all([
       new Promise(resolve => setTimeout(resolve, 750)),
-      stateManager.syncIgnoreState(fp => fileWatcher.shouldIgnore(fp)),
+      stateManager.syncIgnoreState((fp, isDir) => fileWatcher.shouldIgnore(fp, isDir)),
     ]).then(() => {
+      log('startup sync: complete');
       reviewPanel?.setLoading(false);
       onStateChanged();
-    }).catch(() => {
+    }).catch((err) => {
+      log(`startup sync: error — ${err}`);
       reviewPanel?.setLoading(false);
       onStateChanged();
     });
@@ -115,6 +122,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
     const pollInterval = setInterval(() => {
       const gitExists = fs.existsSync(gitDir);
       if (!gitExists && stateManager.enabled) {
+        log('git dir deleted externally — resetting to disabled');
         settingsWatcher?.close();
         settingsWatcher = undefined;
         stateManager.resetToDisabled();
@@ -153,5 +161,6 @@ export function getReviewPanel(): ReviewPanel | undefined {
 }
 
 export async function deactivate(): Promise<void> {
+  log('deactivate');
   await activeStateManager?.flush();
 }
