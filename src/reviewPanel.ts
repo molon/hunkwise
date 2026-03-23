@@ -18,6 +18,7 @@ interface PanelState {
   enabled: boolean;
   ignorePatterns: string[];
   respectGitignore: boolean;
+  clearOnBranchSwitch: boolean;
   totalFiles: number;
   totalAdded: number;
   totalRemoved: number;
@@ -163,6 +164,7 @@ export class ReviewPanel implements vscode.WebviewViewProvider {
       enabled: this.stateManager.enabled,
       ignorePatterns: this.stateManager.ignorePatterns,
       respectGitignore: this.stateManager.respectGitignore,
+      clearOnBranchSwitch: this.stateManager.clearOnBranchSwitch,
       totalFiles: files.length,
       totalAdded,
       totalRemoved,
@@ -192,6 +194,11 @@ export class ReviewPanel implements vscode.WebviewViewProvider {
       case 'setRespectGitignore':
         if (msg.value !== undefined) {
           await vscode.commands.executeCommand('hunkwise.setRespectGitignore', msg.value);
+        }
+        break;
+      case 'setClearOnBranchSwitch':
+        if (msg.value !== undefined) {
+          this.stateManager.setClearOnBranchSwitch(msg.value);
         }
         break;
       case 'acceptAll':

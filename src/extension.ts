@@ -145,6 +145,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
     });
   }
 
+  // ── Watch .git/HEAD for branch switches ─────────────────────────────────────
+  // When clearOnBranchSwitch is enabled, clear all reviewing hunks on branch switch.
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (workspaceRoot) {
+    const gitHeadPath = path.join(workspaceRoot, '.git', 'HEAD');
+    let lastHead: string | undefined;
+    try { lastHead = fs.readFileSync(gitHeadPath, 'utf-8').trim(); } catch { /* no .git */ }
+
+    if (lastHead !== undefined) {
+      let headWatcher: fs.FSWatcher | undefined;
+      const startHeadWatch = () => {
+        try {
+          headWatcher = fs.watch(gitHeadPath, { persistent: false }, () => {
+            if (!stateManager.enabled || !stateManager.clearOnBranchSwitch) return;
+            let currentHead: string | undefined;
+            try { currentHead = fs.readFileSync(gitHeadPath, 'utf-8').trim(); } catch { return; }
+            if (currentHead !== lastHead) {
+              lastHead = currentHead;
+              log(`branch switched → clearing hunks`);
+              stateManager.clearHunksOnBranchSwitch().then(onStateChanged);
+            }
+          });
+        } catch { /* .git/HEAD may not exist in some workspaces */ }
+      };
+      startHeadWatch();
+      context.subscriptions.push({ dispose: () => headWatcher?.close() });
+    }
+  }
+
   context.subscriptions.push({
     dispose: () => { decorationManager?.dispose(); },
   });

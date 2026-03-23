@@ -15,6 +15,7 @@ export class StateManager {
   private _enabled: boolean = false;
   private _ignorePatterns: string[] = [...DEFAULT_IGNORE_PATTERNS];
   private _respectGitignore: boolean = true;
+  private _clearOnBranchSwitch: boolean = false;
   private _git: HunkwiseGit | undefined;
 
   // Serial queue: git ops run one at a time; flush() awaits the tail
@@ -33,6 +34,7 @@ export class StateManager {
   get enabled(): boolean { return this._enabled; }
   get ignorePatterns(): string[] { return this._ignorePatterns; }
   get respectGitignore(): boolean { return this._respectGitignore; }
+  get clearOnBranchSwitch(): boolean { return this._clearOnBranchSwitch; }
   get dir(): string | undefined { return this.hunkwiseDir; }
   get git(): HunkwiseGit | undefined { return this._git; }
 
@@ -63,6 +65,7 @@ export class StateManager {
     const settings = g.loadSettings();
     this._ignorePatterns = settings.ignorePatterns;
     this._respectGitignore = settings.respectGitignore;
+    this._clearOnBranchSwitch = settings.clearOnBranchSwitch;
 
     // Initialize git (idempotent) then restore in-memory state from HEAD
     await g.initGit();
@@ -160,9 +163,10 @@ export class StateManager {
       const g = this.ensureGit();
       if (!g) return;
       await g.initGit();
-      const merged = g.mergeDefaultSettings({ ignorePatterns: this._ignorePatterns, respectGitignore: this._respectGitignore });
+      const merged = g.mergeDefaultSettings({ ignorePatterns: this._ignorePatterns, respectGitignore: this._respectGitignore, clearOnBranchSwitch: this._clearOnBranchSwitch });
       this._ignorePatterns = merged.ignorePatterns;
       this._respectGitignore = merged.respectGitignore;
+      this._clearOnBranchSwitch = merged.clearOnBranchSwitch;
     } else {
       this.state.clear();
       this._git?.destroyGit();
@@ -218,14 +222,21 @@ export class StateManager {
   setIgnorePatterns(patterns: string[]): void {
     this._ignorePatterns = patterns;
     if (this._enabled && this._git) {
-      this._git.saveSettings({ ignorePatterns: patterns, respectGitignore: this._respectGitignore });
+      this._git.saveSettings({ ignorePatterns: patterns, respectGitignore: this._respectGitignore, clearOnBranchSwitch: this._clearOnBranchSwitch });
     }
   }
 
   setRespectGitignore(value: boolean): void {
     this._respectGitignore = value;
     if (this._enabled && this._git) {
-      this._git.saveSettings({ ignorePatterns: this._ignorePatterns, respectGitignore: value });
+      this._git.saveSettings({ ignorePatterns: this._ignorePatterns, respectGitignore: value, clearOnBranchSwitch: this._clearOnBranchSwitch });
+    }
+  }
+
+  setClearOnBranchSwitch(value: boolean): void {
+    this._clearOnBranchSwitch = value;
+    if (this._enabled && this._git) {
+      this._git.saveSettings({ ignorePatterns: this._ignorePatterns, respectGitignore: this._respectGitignore, clearOnBranchSwitch: value });
     }
   }
 
@@ -238,6 +249,7 @@ export class StateManager {
     const settings = this._git.loadSettings();
     this._ignorePatterns = settings.ignorePatterns;
     this._respectGitignore = settings.respectGitignore;
+    this._clearOnBranchSwitch = settings.clearOnBranchSwitch;
     return this._ignorePatterns;
   }
 
@@ -323,6 +335,49 @@ export class StateManager {
 
     // Wait for all queued git operations to complete
     await this.gitQueue;
+  }
+
+  /**
+   * Called on branch switch when clearOnBranchSwitch is enabled.
+   * Updates each reviewing file's baseline to current disk content and removes it from reviewing.
+   * Files that can't be read (deleted) are removed from tracking entirely.
+   */
+  async clearHunksOnBranchSwitch(): Promise<void> {
+    const g = this._git;
+    if (!g) return;
+
+    const reviewingPaths = Array.from(this.state.entries())
+      .filter(([, s]) => s.status === 'reviewing')
+      .map(([fp]) => fp);
+
+    if (reviewingPaths.length === 0) return;
+    log(`clearHunksOnBranchSwitch: clearing ${reviewingPaths.length} file(s)`);
+
+    const toRemove: string[] = [];
+    const toSnapshot: { filePath: string; content: string }[] = [];
+
+    await Promise.all(reviewingPaths.map(async filePath => {
+      try {
+        const content = await fs.promises.readFile(filePath, 'utf-8');
+        toSnapshot.push({ filePath, content });
+      } catch {
+        // File no longer exists — remove from tracking
+        toRemove.push(filePath);
+      }
+    }));
+
+    // Update in-memory state: remove all reviewing entries
+    for (const fp of reviewingPaths) {
+      this.state.delete(fp);
+    }
+
+    // Persist to git
+    if (toRemove.length > 0) {
+      this.gitQueue = this.gitQueue.then(() => g.removeFileBatch(toRemove)).catch(() => {});
+    }
+    if (toSnapshot.length > 0) {
+      this.gitQueue = this.gitQueue.then(() => g.snapshotBatch(toSnapshot)).catch(() => {});
+    }
   }
 
   /**

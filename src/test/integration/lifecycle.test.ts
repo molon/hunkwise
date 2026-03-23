@@ -121,6 +121,43 @@ suite('hunkwise lifecycle integration', function () {
     assert.strictEqual(settings.respectGitignore, false);
   });
 
+  test('setClearOnBranchSwitch persists to settings.json', async () => {
+    const root = getWorkspaceRoot();
+    const settingsPath = path.join(root, '.vscode', 'hunkwise', 'settings.json');
+
+    await enableHunkwise();
+
+    await vscode.commands.executeCommand('hunkwise.setClearOnBranchSwitch', true);
+    await sleep(200);
+
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+    assert.strictEqual(settings.clearOnBranchSwitch, true);
+  });
+
+  test('clearHunks command clears reviewing files and updates baselines', async () => {
+    const root = getWorkspaceRoot();
+
+    // Create a file, enable hunkwise (snapshots baseline), then modify externally
+    writeFileExternally(path.join(root, 'hello.txt'), 'original\n');
+    await enableHunkwise();
+    await waitForCondition(() => gitListTracked(root).includes('hello.txt'));
+
+    // Modify externally to enter reviewing state
+    writeFileExternally(path.join(root, 'hello.txt'), 'modified\n');
+    await sleep(1000); // wait for file watcher to detect change and enter reviewing
+
+    // Verify baseline is still original
+    assert.strictEqual(gitGetBaseline(root, 'hello.txt'), 'original\n');
+
+    // Now clear hunks (simulates branch switch)
+    await vscode.commands.executeCommand('hunkwise.clearHunks');
+    await sleep(500);
+
+    // Verify: baseline updated to current disk content
+    const baseline = gitGetBaseline(root, 'hello.txt');
+    assert.strictEqual(baseline, 'modified\n', 'baseline should be updated to current disk content');
+  });
+
   test('default ignorePatterns exclude .git files from tracking', async () => {
     const root = getWorkspaceRoot();
 

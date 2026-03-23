@@ -34,6 +34,13 @@ export function registerCommands(
       await stateManager.syncIgnoreState((fp, isDir) => fileWatcher.shouldIgnore(fp, isDir));
       onStateChanged();
     }),
+    vscode.commands.registerCommand('hunkwise.setClearOnBranchSwitch', (value: boolean) => {
+      stateManager.setClearOnBranchSwitch(value);
+    }),
+    vscode.commands.registerCommand('hunkwise.clearHunks', async () => {
+      await stateManager.clearHunksOnBranchSwitch();
+      onStateChanged();
+    }),
   );
 }
 

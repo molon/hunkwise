@@ -3,7 +3,7 @@
 const vscode = /** @type {any} */ (globalThis).acquireVsCodeApi();
 const app = document.getElementById('app');
 
-/** @type {{ enabled: boolean, ignorePatterns: string[], respectGitignore: boolean, totalFiles: number, totalAdded: number, totalRemoved: number, files: any[] } | null} */
+/** @type {{ enabled: boolean, ignorePatterns: string[], respectGitignore: boolean, clearOnBranchSwitch: boolean, totalFiles: number, totalAdded: number, totalRemoved: number, files: any[] } | null} */
 let currentState = null;
 /** @type {Set<string>} */
 const expandedFiles = new Set();
@@ -106,7 +106,7 @@ function appendIcon(parent) {
 }
 
 /**
- * @param {{ enabled: boolean, ignorePatterns: string[], respectGitignore: boolean, totalFiles: number, totalAdded: number, totalRemoved: number, files: any[] }} state
+ * @param {{ enabled: boolean, ignorePatterns: string[], respectGitignore: boolean, clearOnBranchSwitch: boolean, totalFiles: number, totalAdded: number, totalRemoved: number, files: any[] }} state
  */
 function render(state) {
   if (!app) return;
@@ -153,7 +153,7 @@ function renderIdleScreen() {
 }
 
 /**
- * @param {{ ignorePatterns: string[], respectGitignore: boolean }} state
+ * @param {{ ignorePatterns: string[], respectGitignore: boolean, clearOnBranchSwitch: boolean }} state
  */
 function renderSettingsScreen(state) {
   if (!app) return;
@@ -190,6 +190,25 @@ function renderSettingsScreen(state) {
   checkText.appendChild(checkDesc);
   checkRow.appendChild(checkText);
   gitignoreSection.appendChild(checkRow);
+
+  // Clear on branch switch
+  const branchRow = el('label', 'settings-check-row');
+  const branchCheckbox = /** @type {HTMLInputElement} */ (document.createElement('input'));
+  branchCheckbox.type = 'checkbox';
+  branchCheckbox.className = 'settings-checkbox';
+  branchCheckbox.checked = state.clearOnBranchSwitch;
+  branchCheckbox.addEventListener('change', () => {
+    vscode.postMessage({ command: 'setClearOnBranchSwitch', value: branchCheckbox.checked });
+  });
+  const branchLabel = el('span', 'settings-check-label', 'Clear hunks on branch switch');
+  const branchDesc = el('span', 'settings-check-desc', 'Automatically clear pending hunks when you switch branches');
+  const branchText = el('div', 'settings-check-text');
+  branchText.appendChild(branchLabel);
+  branchText.appendChild(branchDesc);
+  branchRow.appendChild(branchCheckbox);
+  branchRow.appendChild(branchText);
+  gitignoreSection.appendChild(branchRow);
+
   body.appendChild(gitignoreSection);
 
   // ── Exclude Patterns ──
