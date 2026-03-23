@@ -340,7 +340,16 @@ export class StateManager {
     }
 
     // Add newly allowed files not yet tracked (check both git HEAD and in-memory state
-    // to avoid re-adding files that were loaded from index but not yet committed to HEAD)
+    // to avoid re-adding files that were loaded from index but not yet committed to HEAD).
+    //
+    // These files are silently snapshotted with their current content as baseline,
+    // rather than treated as "new" (baseline='') which would produce hunks. This is
+    // intentional to avoid flooding the user with false positives when:
+    // - ignore rules changed and previously-ignored files are now un-ignored
+    // - a large number of files become visible at once
+    // Genuine new files created while hunkwise is running are caught by
+    // FileWatcher.onDidCreate, not this path. This is intentionally consistent
+    // with the onDiskChange fallback which also silently adopts content.
     const trackedSet = new Set(trackedFiles);
     for (const fp of this.state.keys()) trackedSet.add(fp);
     const toAdd = allowedFiles.filter(fp => !trackedSet.has(fp));

@@ -6,7 +6,7 @@ import { execSync } from 'child_process';
 import {
   getWorkspaceRoot, hunkwiseGitEnv, gitListTracked,
   sleep, waitForCondition, enableHunkwise, disableHunkwise,
-  writeFileExternally, cleanWorkspace, getReviewPanel,
+  writeFileExternally, cleanWorkspace, getReviewPanel, getStateManager,
 } from './helpers';
 
 // ── Test suite ────────────────────────────────────────────────────────────────
@@ -156,6 +156,47 @@ suite('hunkwise startup & loading integration', function () {
     // The batch operation should complete in well under 30 seconds.
     assert.ok(elapsed < 15000,
       `batch removal of 500 files took ${elapsed}ms, expected < 15000ms`);
+  });
+
+  test('load only marks files as reviewing when baseline differs from disk', async () => {
+    const root = getWorkspaceRoot();
+
+    // Create files and enable — baselines match disk content
+    writeFileExternally(path.join(root, 'unchanged.txt'), 'same\n');
+    writeFileExternally(path.join(root, 'will-change.txt'), 'original\n');
+    await enableHunkwise();
+    await waitForCondition(() => gitListTracked(root).includes('unchanged.txt'), 5000);
+    await waitForCondition(() => gitListTracked(root).includes('will-change.txt'), 5000);
+
+    // Modify one file externally (simulates change while VSCode was closed)
+    writeFileExternally(path.join(root, 'will-change.txt'), 'modified\n');
+
+    // Disable and re-enable to trigger load() from scratch
+    await disableHunkwise();
+
+    // Re-inject baselines into git before re-enable (simulate persistent state)
+    // We need to manually set up the git repo since disable destroyed it
+    writeFileExternally(path.join(root, 'unchanged.txt'), 'same\n');
+    writeFileExternally(path.join(root, 'will-change.txt'), 'modified\n');
+    await enableHunkwise();
+    await waitForCondition(() => gitListTracked(root).includes('unchanged.txt'), 5000);
+
+    // Now modify will-change.txt again to create a real diff
+    writeFileExternally(path.join(root, 'will-change.txt'), 'modified-again\n');
+    await sleep(1000);
+
+    // Check state: only will-change.txt should be reviewing
+    const sm = getStateManager();
+    assert.ok(sm, 'StateManager should be available');
+    const allFiles = sm.getAllFiles() as Map<string, any>;
+
+    const unchangedState = allFiles.get(path.join(root, 'unchanged.txt'));
+    assert.ok(!unchangedState || unchangedState.status !== 'reviewing',
+      'unchanged.txt should NOT be in reviewing state');
+
+    const changedState = allFiles.get(path.join(root, 'will-change.txt'));
+    assert.ok(changedState && changedState.status === 'reviewing',
+      'will-change.txt should be in reviewing state');
   });
 
   test('startup sync with error does not leave panel stuck in loading', async () => {

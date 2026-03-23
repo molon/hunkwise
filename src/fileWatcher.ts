@@ -335,8 +335,16 @@ export class FileWatcher {
     // External change — compare against hunkwise baseline
     const gitBaseline = await git.getBaseline(filePath);
     if (gitBaseline === undefined) {
-      // No baseline — treat as new file so the user can review it
-      this.enterReviewing(filePath, '', diskContent);
+      // No baseline in git — silently adopt current content as baseline rather than
+      // treating as a new file. This avoids false "new file" hunks in cases like:
+      // - ignore rules just changed (file newly un-ignored, not actually new)
+      // - syncIgnoreState hasn't finished its git queue yet
+      // - first enable where snapshotWorkspace is still in progress
+      // Genuine new files created while hunkwise is running are caught by onDidCreate,
+      // not this path. This is intentionally consistent with syncIgnoreState's toAdd
+      // behavior which also silently snapshots.
+      log(`no baseline for ${path.basename(filePath)}, adopting current content`);
+      this.stateManager.snapshotFile(filePath, diskContent);
       return;
     }
     this.enterReviewing(filePath, gitBaseline, diskContent);

@@ -8,7 +8,7 @@ import { ReviewPanel } from './reviewPanel';
 import { registerCommands, acceptHunk, discardHunk } from './commands';
 import { initLog, log } from './log';
 
-export async function activate(context: vscode.ExtensionContext): Promise<{ getReviewPanel: () => ReviewPanel | undefined }> {
+export async function activate(context: vscode.ExtensionContext): Promise<{ getReviewPanel: () => ReviewPanel | undefined; getStateManager: () => StateManager | undefined }> {
   initLog();
   const ext = vscode.extensions.getExtension('molon.hunkwise');
   log(`activate v${ext?.packageJSON?.version ?? '?'}`);
@@ -181,7 +181,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
   activeStateManager = stateManager;
   activeReviewPanel = reviewPanel;
 
-  return { getReviewPanel };
+  return { getReviewPanel, getStateManager };
 }
 
 let activeStateManager: StateManager | undefined;
@@ -190,6 +190,11 @@ let activeReviewPanel: ReviewPanel | undefined;
 /** Exposed for integration tests */
 export function getReviewPanel(): ReviewPanel | undefined {
   return activeReviewPanel;
+}
+
+/** Exposed for integration tests */
+export function getStateManager(): StateManager | undefined {
+  return activeStateManager;
 }
 
 export async function deactivate(): Promise<void> {

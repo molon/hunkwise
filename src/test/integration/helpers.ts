@@ -115,3 +115,13 @@ export function getReviewPanel(): any {
   }
   return undefined;
 }
+
+export function getStateManager(): any {
+  const ext = vscode.extensions.getExtension('molon.hunkwise');
+  if (!ext || !ext.isActive) return undefined;
+  const api = ext.exports;
+  if (api && typeof api.getStateManager === 'function') {
+    return api.getStateManager();
+  }
+  return undefined;
+}
