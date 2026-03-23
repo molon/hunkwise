@@ -66,12 +66,15 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "test": "tsc -p ./tsconfig.test.json && node --test out-test/test/*.test.js"
+    "test": "tsc -p ./tsconfig.test.json && node --test out-test/test/*.test.js",
+    "test:integration": "npm run compile && tsc -p ./tsconfig.integration.json && vscode-test"
   },
   "devDependencies": {
     "@types/diff": "^5.x",
     "@types/node": "^20.19.37",
     "@types/vscode": "^1.90.0",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
     "typescript": "^5.x"
   },
   "dependencies": {

@@ -1,5 +1,7 @@
 out/
 out-test/
+out-integration/
+.vscode-test/
 node_modules/
 .vscode/hunkwise/
 *.vsix
