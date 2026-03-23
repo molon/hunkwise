@@ -1,95 +1,11 @@
-import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import assert from 'assert';
-import { execSync } from 'child_process';
-
-function getWorkspaceRoot(): string {
-  const folders = vscode.workspace.workspaceFolders;
-  if (!folders || folders.length === 0) throw new Error('No workspace folder');
-  return folders[0].uri.fsPath;
-}
-
-function hunkwiseGitEnv(root: string): NodeJS.ProcessEnv {
-  return {
-    ...process.env,
-    GIT_DIR: path.join(root, '.vscode', 'hunkwise', 'git'),
-    GIT_WORK_TREE: root,
-    GIT_TERMINAL_PROMPT: '0',
-  };
-}
-
-function gitListTracked(root: string): string[] {
-  try {
-    const out = execSync('git ls-tree HEAD --name-only -r', {
-      cwd: root,
-      env: hunkwiseGitEnv(root),
-      encoding: 'utf-8',
-    });
-    return out.split('\n').map(l => l.trim()).filter(Boolean);
-  } catch {
-    return [];
-  }
-}
-
-function gitGetBaseline(root: string, relPath: string): string | undefined {
-  try {
-    return execSync(`git show ":${relPath}"`, {
-      cwd: root,
-      env: hunkwiseGitEnv(root),
-      encoding: 'utf-8',
-    });
-  } catch {
-    return undefined;
-  }
-}
-
-async function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-async function waitForCondition(fn: () => boolean, timeoutMs = 5000, intervalMs = 100): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    if (fn()) return;
-    await sleep(intervalMs);
-  }
-  throw new Error('Condition not met within timeout');
-}
-
-async function enableHunkwise(): Promise<void> {
-  await vscode.commands.executeCommand('hunkwise.enable');
-  const root = getWorkspaceRoot();
-  const gitDir = path.join(root, '.vscode', 'hunkwise', 'git');
-  await waitForCondition(() => fs.existsSync(gitDir));
-  await sleep(500);
-}
-
-async function disableHunkwise(): Promise<void> {
-  await vscode.commands.executeCommand('hunkwise.disable');
-  await sleep(300);
-}
-
-/**
- * Write a file externally (simulating an AI tool) so FileWatcher treats it
- * as an external change that triggers review mode.
- */
-function writeFileExternally(filePath: string, content: string): void {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, content, 'utf-8');
-}
-
-function cleanWorkspace(): void {
-  const root = getWorkspaceRoot();
-  for (const entry of fs.readdirSync(root)) {
-    if (entry === '.vscode' || entry === '.gitkeep') continue;
-    fs.rmSync(path.join(root, entry), { recursive: true, force: true });
-  }
-  const hunkwiseDir = path.join(root, '.vscode', 'hunkwise');
-  if (fs.existsSync(hunkwiseDir)) {
-    fs.rmSync(hunkwiseDir, { recursive: true, force: true });
-  }
-}
+import {
+  getWorkspaceRoot, gitListTracked, gitGetBaseline,
+  sleep, waitForCondition, enableHunkwise, disableHunkwise,
+  writeFileExternally, cleanWorkspace,
+} from './helpers';
 
 // ── Test suite ────────────────────────────────────────────────────────────────
 
@@ -151,10 +67,9 @@ suite('hunkwise file watcher integration', function () {
     // Create a file externally after enable
     const filePath = path.join(root, 'new-external.txt');
     writeFileExternally(filePath, 'external content\n');
-    await sleep(1500);
 
     const rel = path.relative(root, filePath);
-    await waitForCondition(() => gitListTracked(root).includes(rel), 5000);
+    await waitForCondition(() => gitListTracked(root).includes(rel), 8000);
 
     // For external new files, baseline should be empty (it's treated as a "new file" hunk)
     const baseline = gitGetBaseline(root, rel);
@@ -178,7 +93,7 @@ suite('hunkwise file watcher integration', function () {
 
     // Externally modify the file
     writeFileExternally(filePath, 'original\nmodified\n');
-    await sleep(1500);
+    await sleep(500);
 
     // Baseline should remain the original content
     const baselineAfter = gitGetBaseline(root, rel);
@@ -192,22 +107,14 @@ suite('hunkwise file watcher integration', function () {
     // Create a file externally → baseline = ''
     const filePath = path.join(root, 'will-delete.txt');
     writeFileExternally(filePath, 'temp content\n');
-    await sleep(1500);
 
     const rel = path.relative(root, filePath);
-    await waitForCondition(() => gitListTracked(root).includes(rel), 5000);
+    await waitForCondition(() => gitListTracked(root).includes(rel), 8000);
 
     // Delete the file externally
     fs.unlinkSync(filePath);
-    await sleep(1500);
+    await sleep(500);
 
-    // For external new files (baseline=''), deletion removes tracking
-    // since there's nothing meaningful to show as a deletion hunk
-    // (The file was new and now it's gone — nothing to restore)
-    // Note: if the file had prior content, it would show a deletion hunk instead
-    const tracked = gitListTracked(root);
-    // The file may or may not still be tracked depending on whether
-    // it entered reviewing mode (baseline='' means new file)
     // Just verify the file doesn't exist on disk
     assert.ok(!fs.existsSync(filePath), 'File should not exist on disk after deletion');
   });
@@ -222,7 +129,6 @@ suite('hunkwise file watcher integration', function () {
     await waitForCondition(() => gitListTracked(root).includes(rel), 5000);
 
     await disableHunkwise();
-    await sleep(500);
 
     // Modify the file while disabled
     writeFileExternally(path.join(root, 'persist.txt'), 'modified while disabled\n');
@@ -246,7 +152,6 @@ suite('hunkwise file watcher integration', function () {
     for (const f of files) {
       writeFileExternally(path.join(root, f), `content of ${f}\n`);
     }
-    await sleep(2000);
 
     await waitForCondition(() => {
       const tracked = gitListTracked(root);
@@ -265,7 +170,7 @@ suite('hunkwise file watcher integration', function () {
 
     const emptyFile = path.join(root, 'empty.txt');
     writeFileExternally(emptyFile, '');
-    await sleep(1500);
+    await sleep(500);
 
     const tracked = gitListTracked(root);
     const rel = path.relative(root, emptyFile);

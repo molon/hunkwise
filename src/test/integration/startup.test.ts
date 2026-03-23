@@ -3,88 +3,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import assert from 'assert';
 import { execSync } from 'child_process';
-
-function getWorkspaceRoot(): string {
-  const folders = vscode.workspace.workspaceFolders;
-  if (!folders || folders.length === 0) throw new Error('No workspace folder');
-  return folders[0].uri.fsPath;
-}
-
-function hunkwiseGitEnv(root: string): NodeJS.ProcessEnv {
-  return {
-    ...process.env,
-    GIT_DIR: path.join(root, '.vscode', 'hunkwise', 'git'),
-    GIT_WORK_TREE: root,
-    GIT_TERMINAL_PROMPT: '0',
-  };
-}
-
-function gitListTracked(root: string): string[] {
-  try {
-    const out = execSync('git ls-tree HEAD --name-only -r', {
-      cwd: root,
-      env: hunkwiseGitEnv(root),
-      encoding: 'utf-8',
-    });
-    return out.split('\n').map(l => l.trim()).filter(Boolean);
-  } catch {
-    return [];
-  }
-}
-
-async function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-async function waitForCondition(fn: () => boolean, timeoutMs = 5000, intervalMs = 100): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    if (fn()) return;
-    await sleep(intervalMs);
-  }
-  throw new Error('Condition not met within timeout');
-}
-
-async function enableHunkwise(): Promise<void> {
-  await vscode.commands.executeCommand('hunkwise.enable');
-  const root = getWorkspaceRoot();
-  const gitDir = path.join(root, '.vscode', 'hunkwise', 'git');
-  await waitForCondition(() => fs.existsSync(gitDir));
-  await sleep(500);
-}
-
-async function disableHunkwise(): Promise<void> {
-  await vscode.commands.executeCommand('hunkwise.disable');
-  await sleep(300);
-}
-
-function writeFileExternally(filePath: string, content: string): void {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, content, 'utf-8');
-}
-
-function cleanWorkspace(): void {
-  const root = getWorkspaceRoot();
-  for (const entry of fs.readdirSync(root)) {
-    if (entry === '.vscode' || entry === '.gitkeep') continue;
-    fs.rmSync(path.join(root, entry), { recursive: true, force: true });
-  }
-  const hunkwiseDir = path.join(root, '.vscode', 'hunkwise');
-  if (fs.existsSync(hunkwiseDir)) {
-    fs.rmSync(hunkwiseDir, { recursive: true, force: true });
-  }
-}
-
-function getReviewPanel(): any {
-  const ext = vscode.extensions.getExtension('molon.hunkwise');
-  if (!ext || !ext.isActive) return undefined;
-  // Access exported getReviewPanel function
-  const api = ext.exports;
-  if (api && typeof api.getReviewPanel === 'function') {
-    return api.getReviewPanel();
-  }
-  return undefined;
-}
+import {
+  getWorkspaceRoot, hunkwiseGitEnv, gitListTracked,
+  sleep, waitForCondition, enableHunkwise, disableHunkwise,
+  writeFileExternally, cleanWorkspace, getReviewPanel,
+} from './helpers';
 
 // ── Test suite ────────────────────────────────────────────────────────────────
 
@@ -130,7 +53,7 @@ suite('hunkwise startup & loading integration', function () {
 
     // Create .gitignore first
     writeFileExternally(path.join(root, '.gitignore'), 'ignored-dir/\n');
-    await sleep(1000);
+    await sleep(300);
 
     // Create files
     writeFileExternally(path.join(root, 'keep.txt'), 'keep\n');
@@ -164,7 +87,7 @@ suite('hunkwise startup & loading integration', function () {
     // Wait for sync to complete and stale file to be removed
     await waitForCondition(() => {
       return !gitListTracked(root).includes('ignored-dir/stale.txt');
-    }, 15000, 500);
+    }, 15000, 200);
 
     // Verify final state
     tracked = gitListTracked(root);
@@ -185,7 +108,7 @@ suite('hunkwise startup & loading integration', function () {
 
     // Create .gitignore that ignores a directory
     writeFileExternally(path.join(root, '.gitignore'), 'bulk-dir/\n');
-    await sleep(1000);
+    await sleep(300);
 
     // Create a normal file and enable
     writeFileExternally(path.join(root, 'keep.txt'), 'keep\n');
@@ -214,14 +137,13 @@ suite('hunkwise startup & loading integration', function () {
     assert.ok(tracked.length >= 501, `should have 501+ tracked files, got ${tracked.length}`);
 
     // Trigger syncIgnoreState — this must complete within the test timeout (30s).
-    // Before the batch fix this would take minutes (500 individual git remove + commit).
     const start = Date.now();
     await vscode.commands.executeCommand('hunkwise.setRespectGitignore', true);
 
     await waitForCondition(() => {
       const t = gitListTracked(root);
       return !t.includes('bulk-dir/file-0.txt') && !t.includes('bulk-dir/file-499.txt');
-    }, 20000, 500);
+    }, 20000, 200);
 
     const elapsed = Date.now() - start;
 
@@ -232,7 +154,6 @@ suite('hunkwise startup & loading integration', function () {
     assert.ok(tracked.includes('keep.txt'), 'keep.txt should still be tracked');
 
     // The batch operation should complete in well under 30 seconds.
-    // Individual operations would take ~2s each × 500 = ~16 minutes.
     assert.ok(elapsed < 15000,
       `batch removal of 500 files took ${elapsed}ms, expected < 15000ms`);
   });
@@ -253,13 +174,12 @@ suite('hunkwise startup & loading integration', function () {
     }
 
     // Trigger syncIgnoreState — this should not hang even if git operations fail
-    // The .catch() in extension.ts should ensure setLoading(false) is called
     try {
       await vscode.commands.executeCommand('hunkwise.setRespectGitignore', true);
     } catch {
       // Command itself might throw, that's fine
     }
-    await sleep(3000);
+    await sleep(2000);
 
     // The critical assertion: loading should NOT be stuck on true
     const panel = getReviewPanel();

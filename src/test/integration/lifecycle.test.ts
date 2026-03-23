@@ -2,90 +2,11 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import assert from 'assert';
-import { execSync } from 'child_process';
-
-function getWorkspaceRoot(): string {
-  const folders = vscode.workspace.workspaceFolders;
-  if (!folders || folders.length === 0) throw new Error('No workspace folder');
-  return folders[0].uri.fsPath;
-}
-
-function hunkwiseGitEnv(root: string): NodeJS.ProcessEnv {
-  return {
-    ...process.env,
-    GIT_DIR: path.join(root, '.vscode', 'hunkwise', 'git'),
-    GIT_WORK_TREE: root,
-    GIT_TERMINAL_PROMPT: '0',
-  };
-}
-
-function gitListTracked(root: string): string[] {
-  try {
-    const out = execSync('git ls-tree HEAD --name-only -r', {
-      cwd: root,
-      env: hunkwiseGitEnv(root),
-      encoding: 'utf-8',
-    });
-    return out.split('\n').map(l => l.trim()).filter(Boolean);
-  } catch {
-    return [];
-  }
-}
-
-function gitGetBaseline(root: string, relPath: string): string | undefined {
-  try {
-    return execSync(`git show ":${relPath}"`, {
-      cwd: root,
-      env: hunkwiseGitEnv(root),
-      encoding: 'utf-8',
-    });
-  } catch {
-    return undefined;
-  }
-}
-
-async function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-async function waitForCondition(fn: () => boolean, timeoutMs = 5000, intervalMs = 100): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    if (fn()) return;
-    await sleep(intervalMs);
-  }
-  throw new Error('Condition not met within timeout');
-}
-
-async function enableHunkwise(): Promise<void> {
-  await vscode.commands.executeCommand('hunkwise.enable');
-  const root = getWorkspaceRoot();
-  const gitDir = path.join(root, '.vscode', 'hunkwise', 'git');
-  await waitForCondition(() => fs.existsSync(gitDir));
-  await sleep(500);
-}
-
-async function disableHunkwise(): Promise<void> {
-  await vscode.commands.executeCommand('hunkwise.disable');
-  await sleep(300);
-}
-
-function writeFileExternally(filePath: string, content: string): void {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, content, 'utf-8');
-}
-
-function cleanWorkspace(): void {
-  const root = getWorkspaceRoot();
-  for (const entry of fs.readdirSync(root)) {
-    if (entry === '.vscode' || entry === '.gitkeep') continue;
-    fs.rmSync(path.join(root, entry), { recursive: true, force: true });
-  }
-  const hunkwiseDir = path.join(root, '.vscode', 'hunkwise');
-  if (fs.existsSync(hunkwiseDir)) {
-    fs.rmSync(hunkwiseDir, { recursive: true, force: true });
-  }
-}
+import {
+  getWorkspaceRoot, gitListTracked, gitGetBaseline,
+  sleep, waitForCondition, enableHunkwise, disableHunkwise,
+  writeFileExternally, cleanWorkspace,
+} from './helpers';
 
 // ── Test suite ────────────────────────────────────────────────────────────────
 
@@ -147,7 +68,6 @@ suite('hunkwise lifecycle integration', function () {
 
     // Disable
     await disableHunkwise();
-    await sleep(500);
 
     // Second enable
     await enableHunkwise();
@@ -165,7 +85,6 @@ suite('hunkwise lifecycle integration', function () {
     assert.ok(!fs.existsSync(gitignorePath), '.gitignore should not exist initially');
 
     await enableHunkwise();
-    await sleep(500);
 
     // upsertGitignore should have created .gitignore with hunkwise entry
     if (fs.existsSync(gitignorePath)) {
@@ -183,7 +102,7 @@ suite('hunkwise lifecycle integration', function () {
     await enableHunkwise();
 
     await vscode.commands.executeCommand('hunkwise.setIgnorePatterns', ['.git', 'node_modules', '*.tmp']);
-    await sleep(500);
+    await sleep(200);
 
     const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
     assert.deepStrictEqual(settings.ignorePatterns, ['.git', 'node_modules', '*.tmp']);
@@ -196,7 +115,7 @@ suite('hunkwise lifecycle integration', function () {
     await enableHunkwise();
 
     await vscode.commands.executeCommand('hunkwise.setRespectGitignore', false);
-    await sleep(500);
+    await sleep(200);
 
     const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
     assert.strictEqual(settings.respectGitignore, false);
@@ -215,7 +134,7 @@ suite('hunkwise lifecycle integration', function () {
     await enableHunkwise();
 
     await waitForCondition(() => gitListTracked(root).includes('normal.txt'), 5000);
-    await sleep(1000);
+    await sleep(300);
 
     const tracked = gitListTracked(root);
     assert.ok(tracked.includes('normal.txt'), 'Normal file should be tracked');
