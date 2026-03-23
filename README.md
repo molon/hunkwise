@@ -74,12 +74,54 @@ Settings are stored in `.vscode/hunkwise/settings.json` and can be changed via t
 
 When enabled, hunkwise automatically adds `.vscode/hunkwise/` to your `.gitignore`.
 
+## How it works
+
+### Baseline tracking
+
+When hunkwise is enabled, it snapshots all workspace files into a private git repository at `.vscode/hunkwise/git/`. This repo stores **baselines** — the content of each file at the moment hunkwise starts tracking. The repo always has exactly one commit (each mutation does `--amend`).
+
+When an external tool modifies a file, hunkwise diffs the current content against the stored baseline to produce hunks. Accepting a hunk updates the baseline; discarding a hunk restores the baseline content.
+
+### External vs manual change detection
+
+hunkwise distinguishes between:
+
+- **External changes** (AI tools, scripts): Detected when the file content on disk differs from the open editor buffer. These trigger review mode with inline hunks.
+- **Manual edits** (user typing in VSCode): The editor buffer matches the disk content after save. These silently update the baseline — no hunks shown.
+
+This means you can freely edit files while hunkwise is enabled, and only tool-generated changes will produce hunks.
+
+### File rename and delete handling
+
+- **Manual rename** (via VSCode explorer/API): hunkwise migrates the baseline to the new path. No spurious deletion hunk is shown.
+- **Manual delete** (via VSCode explorer/API): hunkwise removes the baseline. No deletion hunk is shown.
+- **External delete** (tool deletes a file): Shows a deletion hunk so you can review and restore if needed.
+
+### Ignore rules
+
+Files can be excluded from tracking via two mechanisms:
+
+1. **ignorePatterns** in `.vscode/hunkwise/settings.json` — custom patterns (default: `[".git"]`, plus `".DS_Store"` on macOS)
+2. **`.gitignore`** — when `respectGitignore` is true (default), workspace `.gitignore` rules are honored
+
+When ignore rules change (`.gitignore` modified, or patterns updated via settings), hunkwise automatically:
+
+- Removes baselines for files that are now ignored
+- Adds baselines for files that are newly allowed
+
+### State persistence
+
+All baseline data is stored in the git repo and survives VSCode restarts. On reactivation, hunkwise reads baselines from `git ls-tree HEAD` + `git show :path` to restore in-memory state.
+
 ## Development
 
 ```bash
-npm run compile   # compile TypeScript
-npm run watch     # watch mode
-npm test          # run unit tests
+npm run compile          # compile TypeScript
+npm run watch            # watch mode
+npm test                 # run unit tests (node:test runner)
+npm run test:integration # run VSCode integration tests
 ```
 
-Tests cover `diffEngine`, `hunkwiseGit`, and `gitignoreManager`. They run with Node's built-in test runner (`node:test`) and require no additional dependencies.
+Unit tests cover `diffEngine`, `hunkwiseGit`, and `gitignoreManager`. They run with Node's built-in test runner and require no additional dependencies.
+
+Integration tests run in a real VSCode extension host via `@vscode/test-cli` and cover rename/delete handling, .gitignore sync, file watching, and enable/disable lifecycle.

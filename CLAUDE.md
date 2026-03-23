@@ -5,17 +5,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-npm run compile       # compile TypeScript to out/
-npm run watch         # watch mode compilation
-npm test              # compile test config + run unit tests
+npm run compile          # compile TypeScript to out/
+npm run watch            # watch mode compilation
+npm test                 # compile test config + run unit tests
+npm run test:integration # compile + run VSCode integration tests
 ```
 
-To run a single test file:
+To run a single unit test file:
 ```bash
 tsc -p ./tsconfig.test.json && node --test out-test/test/diffEngine.test.js
 ```
 
-Tests use Node's built-in `node:test` runner — no extra test framework.
+Unit tests use Node's built-in `node:test` runner. Integration tests use `@vscode/test-cli` with Mocha in a real VSCode extension host (config: `.vscode-test.mjs`, workspace: `src/test/integration/workspace/`).
 
 ## Architecture
 
@@ -46,7 +47,15 @@ hunkwise is a VSCode extension that provides per-hunk Accept/Discard controls fo
 - **Baseline update on accept hunk**: Accepting a single hunk splices the accepted lines into `fileState.baseline` so subsequent diffs remain correct.
 - **Deleted file support**: Baseline `''` means the file is new; if a file is externally deleted, its baseline is preserved and shown in a diff view via the `hunkwise-baseline:` content provider.
 - **Persistence across restarts**: On `activate()`, `StateManager.load()` checks if `.vscode/hunkwise/git/` exists (enabled state), then reads all baselines from `git ls-tree HEAD` + `git show :path`.
+- **Rename/delete handling**: `onWillRenameFiles` migrates state+git before the actual rename; `onDidRenameFiles` triggers UI refresh after. Manual deletes (via VSCode) silently remove the baseline; external deletes produce a deletion hunk.
+- **Git queue serialization**: All git write operations (`snapshot`, `removeFile`, `renameFile`, `snapshotBatch`) go through `StateManager.gitQueue` to prevent concurrent index/commit operations. Use `stateManager.snapshotFile()` from FileWatcher, never call `git.snapshot()` directly.
+- **syncIgnoreState**: When `.gitignore` or `ignorePatterns` change, `syncIgnoreState()` both adds newly-allowed files and removes newly-ignored files from the git repo. It awaits the full `gitQueue` before returning.
+- **`--force-remove` for git index**: `git update-index --remove` only removes files missing from disk — use `--force-remove` to unconditionally remove from the index even if the file exists on disk.
 
 ### Files that can be tested without VSCode
 
 `tsconfig.test.json` compiles only `diffEngine.ts`, `hunkwiseGit.ts`, `gitignoreManager.ts`, and the test files — these have no `vscode` dependency and run in plain Node.
+
+### Integration tests
+
+`tsconfig.integration.json` compiles to `out-integration/`. Tests run in a real VSCode instance via `.vscode-test.mjs` config with `--enable-proposed-api=molon.hunkwise`. Test workspace is at `src/test/integration/workspace/`. Each test `setup()` cleans the workspace and `teardown()` disables hunkwise.
