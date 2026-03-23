@@ -375,45 +375,70 @@ export class StateManager {
 
   /**
    * Called on branch switch when clearOnBranchSwitch is enabled.
-   * Updates each reviewing file's baseline to current disk content and removes it from reviewing.
-   * Files that can't be read (deleted) are removed from tracking entirely.
+   * Clears all reviewing state, re-snapshots every tracked file to the current
+   * disk content, and removes baselines for files that no longer exist.
+   * This must be called while FileWatcher events are suppressed so that
+   * git-checkout-induced file changes don't race with the clear.
    */
-  async clearHunksOnBranchSwitch(): Promise<void> {
+  async clearHunksOnBranchSwitch(shouldIgnore?: (filePath: string, isDirectory?: boolean) => boolean): Promise<void> {
     const g = this._git;
-    if (!g) return;
+    if (!g || !this.workspaceRoot) return;
 
-    const reviewingPaths = Array.from(this.state.entries())
-      .filter(([, s]) => s.status === 'reviewing')
-      .map(([fp]) => fp);
+    const reviewingCount = Array.from(this.state.values()).filter(s => s.status === 'reviewing').length;
+    log(`clearHunksOnBranchSwitch: clearing ${reviewingCount} reviewing file(s), re-syncing all baselines`);
 
-    if (reviewingPaths.length === 0) return;
-    log(`clearHunksOnBranchSwitch: clearing ${reviewingPaths.length} file(s)`);
+    // Clear all in-memory state — fresh start
+    this.state.clear();
 
-    const toRemove: string[] = [];
-    const toSnapshot: { filePath: string; content: string }[] = [];
-
-    await Promise.all(reviewingPaths.map(async filePath => {
+    // Collect all current workspace files (respecting ignore rules)
+    const collect = async (dir: string): Promise<string[]> => {
+      let results: string[] = [];
+      let entries: fs.Dirent[];
       try {
-        const content = await fs.promises.readFile(filePath, 'utf-8');
-        toSnapshot.push({ filePath, content });
+        entries = await fs.promises.readdir(dir, { withFileTypes: true });
       } catch {
-        // File no longer exists — remove from tracking
-        toRemove.push(filePath);
+        return results;
       }
+      for (const entry of entries) {
+        const full = path.join(dir, entry.name);
+        const isDir = entry.isDirectory();
+        if (shouldIgnore?.(full, isDir)) continue;
+        if (isDir) {
+          results = results.concat(await collect(full));
+        } else if (entry.isFile()) {
+          results.push(full);
+        }
+      }
+      return results;
+    };
+
+    const [diskFiles, trackedFiles] = await Promise.all([
+      collect(this.workspaceRoot),
+      g.listTrackedFiles(),
+    ]);
+
+    // Snapshot all disk files as new baselines
+    const diskSet = new Set(diskFiles);
+    const batch: { filePath: string; content: string }[] = [];
+    await Promise.all(diskFiles.map(async fp => {
+      try {
+        const content = await fs.promises.readFile(fp, 'utf-8');
+        if (content.length > 0) batch.push({ filePath: fp, content });
+      } catch { /* skip unreadable */ }
     }));
 
-    // Update in-memory state: remove all reviewing entries
-    for (const fp of reviewingPaths) {
-      this.state.delete(fp);
-    }
+    // Remove baselines for files that no longer exist on disk
+    const toRemove = trackedFiles.filter(fp => !diskSet.has(fp));
 
-    // Persist to git
     if (toRemove.length > 0) {
       this.gitQueue = this.gitQueue.then(() => g.removeFileBatch(toRemove)).catch(() => {});
     }
-    if (toSnapshot.length > 0) {
-      this.gitQueue = this.gitQueue.then(() => g.snapshotBatch(toSnapshot)).catch(() => {});
+    if (batch.length > 0) {
+      this.gitQueue = this.gitQueue.then(() => g.snapshotBatch(batch)).catch(() => {});
     }
+
+    // Wait for all git ops to complete before returning
+    await this.gitQueue;
   }
 
   /**

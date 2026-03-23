@@ -146,7 +146,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
   }
 
   // ── Watch .git/HEAD for branch switches ─────────────────────────────────────
-  // When clearOnBranchSwitch is enabled, clear all reviewing hunks on branch switch.
+  // When clearOnBranchSwitch is enabled, suppress FileWatcher during the switch
+  // so that file create/delete/change events caused by git checkout don't produce
+  // false reviewing entries, then re-sync all baselines to the new branch content.
+  //
+  // Two subtleties on macOS:
+  // 1. fs.watch may stop firing after git replaces .git/HEAD (atomic rename).
+  //    We recreate the watcher after each event.
+  // 2. FSEvents from git checkout are delivered asynchronously and may arrive
+  //    after clearHunksOnBranchSwitch completes. We keep the file watcher
+  //    suppressed for an extra delay after git ops finish.
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   if (workspaceRoot) {
     const gitHeadPath = path.join(workspaceRoot, '.git', 'HEAD');
@@ -156,15 +165,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
     if (lastHead !== undefined) {
       let headWatcher: fs.FSWatcher | undefined;
       const startHeadWatch = () => {
+        headWatcher?.close();
+        headWatcher = undefined;
         try {
           headWatcher = fs.watch(gitHeadPath, { persistent: false }, () => {
+            // Recreate watcher immediately — on macOS, git checkout replaces
+            // .git/HEAD via atomic rename, which can invalidate fs.watch.
+            startHeadWatch();
+
             if (!stateManager.enabled || !stateManager.clearOnBranchSwitch) return;
             let currentHead: string | undefined;
             try { currentHead = fs.readFileSync(gitHeadPath, 'utf-8').trim(); } catch { return; }
             if (currentHead !== lastHead) {
               lastHead = currentHead;
-              log(`branch switched → clearing hunks`);
-              stateManager.clearHunksOnBranchSwitch().then(onStateChanged);
+              log(`branch switched → suppressing file watcher and clearing hunks`);
+              fileWatcher.suppressAll();
+              stateManager.clearHunksOnBranchSwitch(
+                (fp, isDir) => fileWatcher.shouldIgnore(fp, isDir)
+              ).then(() => {
+                // Keep suppressed for extra time to let late FSEvents drain
+                setTimeout(() => {
+                  fileWatcher.resumeAll();
+                  onStateChanged();
+                }, 2000);
+              }).catch(() => {
+                setTimeout(() => {
+                  fileWatcher.resumeAll();
+                  onStateChanged();
+                }, 2000);
+              });
             }
           });
         } catch { /* .git/HEAD may not exist in some workspaces */ }

@@ -38,7 +38,9 @@ export function registerCommands(
       stateManager.setClearOnBranchSwitch(value);
     }),
     vscode.commands.registerCommand('hunkwise.clearHunks', async () => {
-      await stateManager.clearHunksOnBranchSwitch();
+      await stateManager.clearHunksOnBranchSwitch(
+        (fp, isDir) => fileWatcher.shouldIgnore(fp, isDir)
+      );
       onStateChanged();
     }),
   );

@@ -47,6 +47,8 @@ export class FileWatcher {
   private onIgnoreRulesChanged: (() => void) | undefined;
   // Compiled ignore instance from workspace .gitignore
   private gitignoreMatcher: Ignore = ignoreLib();
+  // When true, all file-system events are suppressed (used during branch switch)
+  private _suppressed: boolean = false;
 
   constructor(
     private stateManager: StateManager,
@@ -190,6 +192,16 @@ export class FileWatcher {
     }
   }
 
+  /** Suppress all file-system event handling (used during branch switch). */
+  suppressAll(): void {
+    this._suppressed = true;
+  }
+
+  /** Resume file-system event handling after branch switch completes. */
+  resumeAll(): void {
+    this._suppressed = false;
+  }
+
   markSelfEdit(filePath: string): void {
     this.selfEditFiles.add(filePath);
   }
@@ -223,6 +235,7 @@ export class FileWatcher {
   }
 
   private async onDiskCreate(uri: vscode.Uri): Promise<void> {
+    if (this._suppressed) return;
     if (!this.stateManager.enabled) return;
     const filePath = uri.fsPath;
     if (this.shouldIgnore(filePath)) return;
@@ -260,6 +273,7 @@ export class FileWatcher {
   }
 
   private async onDiskDelete(uri: vscode.Uri): Promise<void> {
+    if (this._suppressed) return;
     if (!this.stateManager.enabled) return;
     const filePath = uri.fsPath;
     if (this.shouldIgnore(filePath)) return;
@@ -300,6 +314,7 @@ export class FileWatcher {
   }
 
   private async onDiskChange(uri: vscode.Uri): Promise<void> {
+    if (this._suppressed) return;
     if (!this.stateManager.enabled) return;
     const filePath = uri.fsPath;
 
@@ -351,6 +366,7 @@ export class FileWatcher {
   }
 
   private onDocumentChange(e: vscode.TextDocumentChangeEvent): void {
+    if (this._suppressed) return;
     if (!this.stateManager.enabled) return;
     if (e.document.uri.scheme !== 'file') return;
     const filePath = e.document.uri.fsPath;
