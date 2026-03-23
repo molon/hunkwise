@@ -53,9 +53,21 @@ const SPLASH_QUOTES = [
   "Your future self will thank you. Or blame you. It depends on the diff.",
 ];
 
+/** Cached quote so it doesn't change on every render */
+let cachedQuote = '';
+/** Timestamp of when the cached quote was set */
+let cachedQuoteTime = 0;
+/** Minimum interval (ms) before picking a new quote */
+const QUOTE_MIN_INTERVAL = 30000; // 30 seconds
+
 /** @returns {string} */
 function randomQuote() {
-  return SPLASH_QUOTES[Math.floor(Math.random() * SPLASH_QUOTES.length)];
+  const now = Date.now();
+  if (!cachedQuote || (now - cachedQuoteTime) >= QUOTE_MIN_INTERVAL) {
+    cachedQuote = SPLASH_QUOTES[Math.floor(Math.random() * SPLASH_QUOTES.length)];
+    cachedQuoteTime = now;
+  }
+  return cachedQuote;
 }
 
 /**

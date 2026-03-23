@@ -7,7 +7,7 @@ import { DecorationManager } from './decorationManager';
 import { ReviewPanel } from './reviewPanel';
 import { registerCommands, acceptHunk, discardHunk } from './commands';
 
-export async function activate(context: vscode.ExtensionContext): Promise<void> {
+export async function activate(context: vscode.ExtensionContext): Promise<{ getReviewPanel: () => ReviewPanel | undefined }> {
   const stateManager = new StateManager();
   await stateManager.load();
 
@@ -34,12 +34,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const fileWatcher = new FileWatcher(stateManager, onStateChanged, () => syncIgnore());
   syncIgnore = () => stateManager.syncIgnoreState(fp => fileWatcher.shouldIgnore(fp)).then(onStateChanged);
   fileWatcher.register(context);
-
-  // Sync ignore state on startup in case .gitignore or ignorePatterns
-  // changed while VSCode was closed.
-  if (stateManager.enabled) {
-    syncIgnore();
-  }
 
   decorationManager = new DecorationManager(stateManager, (command, filePath, hId) => {
     if (command === 'accept') {
@@ -79,7 +73,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     })
   );
 
-  onStateChanged();
+  // Sync ignore state on startup in case .gitignore or ignorePatterns
+  // changed while VSCode was closed. Show loading state during sync so
+  // the panel doesn't flash stale data before the sync completes.
+  if (stateManager.enabled) {
+    reviewPanel.setLoading(true);
+    Promise.all([
+      new Promise(resolve => setTimeout(resolve, 750)),
+      stateManager.syncIgnoreState(fp => fileWatcher.shouldIgnore(fp)),
+    ]).then(() => {
+      reviewPanel?.setLoading(false);
+      onStateChanged();
+    }).catch(() => {
+      reviewPanel?.setLoading(false);
+      onStateChanged();
+    });
+  } else {
+    onStateChanged();
+  }
 
   // ── Watch .vscode/hunkwise/git/ for deletion ────────────────────────────────
   // Detects: git dir deleted → reset to disabled; settings.json changed → reload patterns.
@@ -128,9 +139,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
 
   activeStateManager = stateManager;
+  activeReviewPanel = reviewPanel;
+
+  return { getReviewPanel };
 }
 
 let activeStateManager: StateManager | undefined;
+let activeReviewPanel: ReviewPanel | undefined;
+
+/** Exposed for integration tests */
+export function getReviewPanel(): ReviewPanel | undefined {
+  return activeReviewPanel;
+}
 
 export async function deactivate(): Promise<void> {
   await activeStateManager?.flush();

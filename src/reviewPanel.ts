@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import { StateManager } from './stateManager';
 import { FileWatcher } from './fileWatcher';
 import { computeHunks, hunkId } from './diffEngine';
+
 import {
   acceptAllFiles,
   discardAllFiles,
@@ -46,6 +47,8 @@ interface PanelHunk {
 export class ReviewPanel implements vscode.WebviewViewProvider {
   private view?: vscode.WebviewView;
   private _loading: boolean = false;
+
+  get loading(): boolean { return this._loading; }
 
   constructor(
     private context: vscode.ExtensionContext,
