@@ -80,20 +80,37 @@ export class StateManager {
     const tracked = await g.listTrackedFiles();
     const ignored: string[] = [];
     const skippedNoBaseline: string[] = [];
+    const reviewing: string[] = [];
+    const idle: string[] = [];
     await Promise.all(tracked.map(async filePath => {
       if (shouldIgnore?.(filePath)) {
         ignored.push(filePath);
         return;
       }
       const baseline = await g.getBaseline(filePath);
-      if (baseline !== undefined) {
-        this.state.set(filePath, { status: 'reviewing', baseline });
-      } else {
+      if (baseline === undefined) {
         skippedNoBaseline.push(filePath);
+        return;
+      }
+      // Compare baseline with current disk content — only enter reviewing if there's a real diff
+      let diskContent: string | undefined;
+      try { diskContent = await fs.promises.readFile(filePath, 'utf-8'); } catch { /* file deleted or unreadable */ }
+      if (diskContent !== undefined && diskContent !== baseline) {
+        this.state.set(filePath, { status: 'reviewing', baseline });
+        reviewing.push(filePath);
+      } else {
+        // No diff (or file deleted) — baseline is stored in git, no need to set reviewing
+        idle.push(filePath);
       }
     }));
     if (skippedNoBaseline.length > 0) {
       log(`load: skipped ${skippedNoBaseline.length} file(s) with no baseline in index: ${logFileList(skippedNoBaseline, this.workspaceRoot)}`);
+    }
+    if (reviewing.length > 0) {
+      log(`load: ${reviewing.length} file(s) have diffs: ${logFileList(reviewing, this.workspaceRoot)}`);
+    }
+    if (idle.length > 0) {
+      log(`load: ${idle.length} file(s) unchanged, baseline preserved`);
     }
     // Clean up stale ignored entries from the git repo
     if (ignored.length > 0) {
