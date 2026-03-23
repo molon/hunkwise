@@ -165,7 +165,7 @@ export class FileWatcher {
     const openDoc = vscode.workspace.textDocuments.find(d => d.uri.fsPath === filePath);
     if (openDoc && openDoc.getText() === diskContent) {
       // User created/saved this file in VSCode — snapshot as baseline, no hunk
-      await git.snapshot(filePath, diskContent);
+      this.stateManager.snapshotFile(filePath, diskContent);
       return;
     }
 
@@ -242,7 +242,7 @@ export class FileWatcher {
     const openDoc = vscode.workspace.textDocuments.find(d => d.uri.fsPath === filePath);
     if (openDoc && openDoc.getText() === diskContent) {
       // User saved in VSCode — accept into baseline, no hunk
-      await git.snapshot(filePath, diskContent);
+      this.stateManager.snapshotFile(filePath, diskContent);
       return;
     }
 
@@ -250,7 +250,7 @@ export class FileWatcher {
     const gitBaseline = await git.getBaseline(filePath);
     if (gitBaseline === undefined) {
       // No baseline yet — snapshot current content as baseline
-      await git.snapshot(filePath, diskContent);
+      this.stateManager.snapshotFile(filePath, diskContent);
       return;
     }
     this.enterReviewing(filePath, gitBaseline, diskContent);

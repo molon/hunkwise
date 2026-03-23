@@ -163,7 +163,7 @@ export class HunkwiseGit {
       const match = lsOut.trim().match(/^(\d+) ([0-9a-f]+) \d+\t/);
       if (!match) return; // not tracked — nothing to rename
       const [, mode, hash] = match;
-      await this.git(['update-index', '--remove', '--', oldRel]);
+      await this.git(['update-index', '--force-remove', '--', oldRel]);
       await this.git(['update-index', '--add', '--cacheinfo', `${mode},${hash},${newRel}`]);
       await this.commit();
     } catch {
@@ -178,7 +178,7 @@ export class HunkwiseGit {
     await this.initGit();
     const rel = path.relative(this.workTree, filePath);
     try {
-      await this.git(['update-index', '--remove', '--', rel]);
+      await this.git(['update-index', '--force-remove', '--', rel]);
       await this.commit();
     } catch {
       // Non-fatal

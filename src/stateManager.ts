@@ -109,6 +109,17 @@ export class StateManager {
     }
   }
 
+  /**
+   * Snapshot a file's content as baseline via the git queue (serialized).
+   * Use this instead of calling git.snapshot() directly to avoid concurrent git ops.
+   */
+  snapshotFile(filePath: string, content: string): void {
+    if (this._git) {
+      const g = this._git;
+      this.gitQueue = this.gitQueue.then(() => g.snapshot(filePath, content)).catch(() => {});
+    }
+  }
+
   getAllFiles(): ReadonlyMap<string, FileState> {
     return this.state;
   }
@@ -219,8 +230,9 @@ export class StateManager {
   }
 
   /**
-   * Snapshot files newly allowed by current ignore rules but not yet tracked.
-   * Never removes existing baselines — removing tracked files mid-session is unsafe.
+   * Sync tracked files with current ignore rules.
+   * - Removes baselines for files that are now ignored.
+   * - Snapshots files newly allowed by current rules but not yet tracked.
    * Called after ignorePatterns / respectGitignore / .gitignore changes.
    */
   async syncIgnoreState(shouldIgnore: (filePath: string) => boolean): Promise<void> {
@@ -252,20 +264,38 @@ export class StateManager {
       g.listTrackedFiles(),
     ]);
 
+    // Remove tracked files that are now ignored
+    const allowedSet = new Set(allowedFiles);
+    const toRemove = trackedFiles.filter(fp => !allowedSet.has(fp));
+    for (const fp of toRemove) {
+      this.state.delete(fp);
+    }
+    if (toRemove.length > 0) {
+      this.gitQueue = this.gitQueue.then(async () => {
+        for (const fp of toRemove) {
+          await g.removeFile(fp);
+        }
+      }).catch(() => {});
+    }
+
+    // Add newly allowed files not yet tracked
     const trackedSet = new Set(trackedFiles);
     const toAdd = allowedFiles.filter(fp => !trackedSet.has(fp));
-    if (toAdd.length === 0) return;
-
-    const batch: { filePath: string; content: string }[] = [];
-    await Promise.all(toAdd.map(async fp => {
-      try {
-        const content = await fs.promises.readFile(fp, 'utf-8');
-        batch.push({ filePath: fp, content });
-      } catch { /* skip unreadable */ }
-    }));
-    if (batch.length > 0) {
-      this.gitQueue = this.gitQueue.then(() => g.snapshotBatch(batch)).catch(() => {});
+    if (toAdd.length > 0) {
+      const batch: { filePath: string; content: string }[] = [];
+      await Promise.all(toAdd.map(async fp => {
+        try {
+          const content = await fs.promises.readFile(fp, 'utf-8');
+          batch.push({ filePath: fp, content });
+        } catch { /* skip unreadable */ }
+      }));
+      if (batch.length > 0) {
+        this.gitQueue = this.gitQueue.then(() => g.snapshotBatch(batch)).catch(() => {});
+      }
     }
+
+    // Wait for all queued git operations to complete
+    await this.gitQueue;
   }
 
   /**
