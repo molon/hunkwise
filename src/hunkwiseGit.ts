@@ -60,6 +60,7 @@ export class HunkwiseGit {
     const { stdout } = await execFileAsync('git', args, {
       cwd: this.workTree,
       env: this.env,
+      maxBuffer: 10 * 1024 * 1024, // 10 MB — default 1 MB is too small for large files
     });
     return stdout;
   }

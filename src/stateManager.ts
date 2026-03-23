@@ -79,6 +79,7 @@ export class StateManager {
     await g.initGit();
     const tracked = await g.listTrackedFiles();
     const ignored: string[] = [];
+    const skippedNoBaseline: string[] = [];
     await Promise.all(tracked.map(async filePath => {
       if (shouldIgnore?.(filePath)) {
         ignored.push(filePath);
@@ -87,8 +88,13 @@ export class StateManager {
       const baseline = await g.getBaseline(filePath);
       if (baseline !== undefined) {
         this.state.set(filePath, { status: 'reviewing', baseline });
+      } else {
+        skippedNoBaseline.push(filePath);
       }
     }));
+    if (skippedNoBaseline.length > 0) {
+      log(`load: skipped ${skippedNoBaseline.length} file(s) with no baseline in index: ${logFileList(skippedNoBaseline, this.workspaceRoot)}`);
+    }
     // Clean up stale ignored entries from the git repo
     if (ignored.length > 0) {
       log(`load: removing ${ignored.length} ignored file(s) from git: ${logFileList(ignored, this.workspaceRoot)}`);
@@ -148,6 +154,18 @@ export class StateManager {
 
   isReviewing(filePath: string): boolean {
     return this.state.get(filePath)?.status === 'reviewing';
+  }
+
+  /**
+   * Exit reviewing state without removing the file from git.
+   * If newBaseline is provided, update the baseline in git (e.g. after accept).
+   * If omitted, the existing baseline is already correct (e.g. hunks resolved to 0, or discard).
+   */
+  exitReviewing(filePath: string, newBaseline?: string): void {
+    this.state.delete(filePath);
+    if (newBaseline !== undefined) {
+      this.snapshotFile(filePath, newBaseline);
+    }
   }
 
   clearAllFiles(): void {
@@ -316,8 +334,10 @@ export class StateManager {
       this.gitQueue = this.gitQueue.then(() => g.removeFileBatch(toRemove)).catch(() => {});
     }
 
-    // Add newly allowed files not yet tracked
+    // Add newly allowed files not yet tracked (check both git HEAD and in-memory state
+    // to avoid re-adding files that were loaded from index but not yet committed to HEAD)
     const trackedSet = new Set(trackedFiles);
+    for (const fp of this.state.keys()) trackedSet.add(fp);
     const toAdd = allowedFiles.filter(fp => !trackedSet.has(fp));
     if (toAdd.length > 0) {
       log(`syncIgnoreState: adding ${toAdd.length} file(s): ${logFileList(toAdd, this.workspaceRoot)}`);

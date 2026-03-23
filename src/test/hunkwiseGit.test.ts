@@ -98,6 +98,30 @@ describe('HunkwiseGit', () => {
       // Must be readable right away without any extra commit
       assert.equal(await git.getBaseline(filePath), 'immediate\n');
     });
+
+    it('snapshot after snapshotBatch does not lose batch files from HEAD', async () => {
+      // Reproduce: snapshotBatch adds fileA, then snapshot adds fileB.
+      // After both commits, fileA must still be in HEAD (listTrackedFiles).
+      const fileA = path.join(tmpDir, 'batch-persist-a.txt');
+      const fileB = path.join(tmpDir, 'batch-persist-b.txt');
+      await git.snapshotBatch([{ filePath: fileA, content: 'aaa\n' }]);
+      await git.snapshot(fileB, 'bbb\n');
+      const tracked = await git.listTrackedFiles();
+      assert.ok(tracked.includes(fileA), `fileA should be in HEAD after subsequent snapshot (tracked: ${tracked.join(', ')})`);
+      assert.ok(tracked.includes(fileB), `fileB should be in HEAD`);
+      assert.equal(await git.getBaseline(fileA), 'aaa\n');
+      assert.equal(await git.getBaseline(fileB), 'bbb\n');
+    });
+
+    it('snapshotBatch after snapshotBatch preserves all files in HEAD', async () => {
+      const fileC = path.join(tmpDir, 'batch2-c.txt');
+      const fileD = path.join(tmpDir, 'batch2-d.txt');
+      await git.snapshotBatch([{ filePath: fileC, content: 'ccc\n' }]);
+      await git.snapshotBatch([{ filePath: fileD, content: 'ddd\n' }]);
+      const tracked = await git.listTrackedFiles();
+      assert.ok(tracked.includes(fileC), 'fileC from first batch should persist after second batch');
+      assert.ok(tracked.includes(fileD), 'fileD from second batch should be present');
+    });
   });
 
   describe('removeFile', () => {
@@ -255,7 +279,7 @@ describe('HunkwiseGit', () => {
     it('round-trips settings', () => {
       const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hunkwise-settings2-'));
       const g2 = new HunkwiseGit(path.join(dir2, '.vscode', 'hunkwise'), dir2);
-      g2.saveSettings({ ignorePatterns: ['node_modules', 'dist'], respectGitignore: false });
+      g2.saveSettings({ ignorePatterns: ['node_modules', 'dist'], respectGitignore: false, clearOnBranchSwitch: false });
       const s = g2.loadSettings();
       assert.deepEqual(s.ignorePatterns, ['node_modules', 'dist']);
       assert.equal(s.respectGitignore, false);
@@ -272,7 +296,7 @@ describe('HunkwiseGit', () => {
         JSON.stringify({ ignorePatterns: ['dist'] }),
         'utf-8'
       );
-      const merged = g2.mergeDefaultSettings({ ignorePatterns: ['.git'], respectGitignore: true });
+      const merged = g2.mergeDefaultSettings({ ignorePatterns: ['.git'], respectGitignore: true, clearOnBranchSwitch: false });
       // Existing value preserved
       assert.deepEqual(merged.ignorePatterns, ['dist']);
       // Missing field filled from defaults
@@ -283,8 +307,8 @@ describe('HunkwiseGit', () => {
     it('mergeDefaultSettings preserves all existing fields', () => {
       const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hunkwise-merge2-'));
       const g2 = new HunkwiseGit(path.join(dir2, '.vscode', 'hunkwise'), dir2);
-      g2.saveSettings({ ignorePatterns: ['custom'], respectGitignore: false });
-      const merged = g2.mergeDefaultSettings({ ignorePatterns: ['.git'], respectGitignore: true });
+      g2.saveSettings({ ignorePatterns: ['custom'], respectGitignore: false, clearOnBranchSwitch: false });
+      const merged = g2.mergeDefaultSettings({ ignorePatterns: ['.git'], respectGitignore: true, clearOnBranchSwitch: false });
       assert.deepEqual(merged.ignorePatterns, ['custom']);
       assert.equal(merged.respectGitignore, false);
       fs.rmSync(dir2, { recursive: true, force: true });
@@ -308,7 +332,7 @@ describe('HunkwiseGit', () => {
       const hDir = path.join(dir2, '.vscode', 'hunkwise');
       const g2 = new HunkwiseGit(hDir, dir2);
       await g2.initGit();
-      g2.saveSettings({ ignorePatterns: ['dist'], respectGitignore: false });
+      g2.saveSettings({ ignorePatterns: ['dist'], respectGitignore: false, clearOnBranchSwitch: false });
       g2.destroyGit();
       assert.ok(fs.existsSync(path.join(hDir, 'settings.json')));
       fs.rmSync(dir2, { recursive: true, force: true });

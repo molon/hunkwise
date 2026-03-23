@@ -81,7 +81,13 @@ export async function acceptAllFiles(
   onStateChanged: () => void
 ): Promise<void> {
   for (const filePath of Array.from(stateManager.getAllFiles().keys())) {
-    stateManager.removeFile(filePath);
+    let content: string;
+    try { content = fs.readFileSync(filePath, 'utf-8'); } catch { content = ''; }
+    if (content === '') {
+      stateManager.removeFile(filePath);
+    } else {
+      stateManager.exitReviewing(filePath, content);
+    }
   }
   onStateChanged();
 }
@@ -104,7 +110,7 @@ export async function discardAllFiles(
       edit.replace(uri, fullRange, fileState.baseline);
       await vscode.workspace.applyEdit(edit);
       await doc.save();
-      stateManager.removeFile(filePath);
+      stateManager.exitReviewing(filePath);
     } catch { /* skip files that can't be opened */ } finally {
       fileWatcher.clearSelfEdit(filePath);
     }
@@ -118,7 +124,13 @@ export function acceptFileByPath(
   onStateChanged: () => void
 ): void {
   if (!stateManager.getFile(filePath)) return;
-  stateManager.removeFile(filePath);
+  let content: string;
+  try { content = fs.readFileSync(filePath, 'utf-8'); } catch { content = ''; }
+  if (content === '') {
+    stateManager.removeFile(filePath);
+  } else {
+    stateManager.exitReviewing(filePath, content);
+  }
   onStateChanged();
 }
 
@@ -156,7 +168,12 @@ export async function discardFileByPath(
   } finally {
     fileWatcher.clearSelfEdit(filePath);
   }
-  stateManager.removeFile(filePath);
+  if (fileState.baseline === '') {
+    // Discarding a new file means it was deleted — remove from tracking
+    stateManager.removeFile(filePath);
+  } else {
+    stateManager.exitReviewing(filePath);
+  }
   onStateChanged();
 }
 
@@ -187,7 +204,7 @@ export function acceptHunk(
   fileState.baseline = newBaseline;
   stateManager.setFile(filePath, fileState);
   if (computeHunks(newBaseline, doc.getText()).length === 0) {
-    stateManager.removeFile(filePath);
+    stateManager.exitReviewing(filePath, doc.getText());
   }
   onStateChanged();
 }
@@ -232,7 +249,7 @@ export async function discardHunk(
     const saved = vscode.workspace.textDocuments.find(d => d.uri.fsPath === filePath);
     if (saved) await saved.save();
     if (computeHunks(fileState.baseline, saved?.getText() ?? doc.getText()).length === 0) {
-      stateManager.removeFile(filePath);
+      stateManager.exitReviewing(filePath);
     }
     onStateChanged();
   } finally {

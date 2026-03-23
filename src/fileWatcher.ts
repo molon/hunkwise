@@ -377,7 +377,8 @@ export class FileWatcher {
 
   private recomputeHunks(filePath: string, baseline: string, current: string): void {
     if (computeHunks(baseline, current).length === 0) {
-      this.stateManager.removeFile(filePath);
+      // No diff remaining — exit reviewing, baseline in git is already correct
+      this.stateManager.exitReviewing(filePath);
     }
     this.onStateChanged();
   }
