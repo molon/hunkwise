@@ -241,4 +241,89 @@ suite('hunkwise ignore/gitignore integration', function () {
     assert.ok(!tracked.includes(relDeep), `"${relDeep}" should not be tracked after ignoring vendor/`);
     assert.ok(tracked.includes(relTop), `"${relTop}" should still be tracked`);
   });
+
+  test('ignorePatterns changed externally in settings.json triggers sync on reload', async () => {
+    const root = getWorkspaceRoot();
+    const settingsPath = path.join(root, '.vscode', 'hunkwise', 'settings.json');
+
+    // Create files
+    const ignoredFile = path.join(root, 'logs', 'app.log');
+    const normalFile = path.join(root, 'index.txt');
+    writeFileExternally(ignoredFile, 'log data\n');
+    writeFileExternally(normalFile, 'index data\n');
+
+    await enableHunkwise();
+
+    const relIgnored = path.relative(root, ignoredFile);
+    const relNormal = path.relative(root, normalFile);
+
+    // Wait for both files to be tracked
+    await waitForCondition(() => {
+      const tracked = gitListTracked(root);
+      return tracked.includes(relIgnored) && tracked.includes(relNormal);
+    }, 8000);
+
+    // Externally modify settings.json to add 'logs' to ignorePatterns
+    // (simulates settings changed while VSCode was closed, or edited via another tool)
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+    settings.ignorePatterns = ['.git', 'logs'];
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+
+    // Wait for fs.watch on hunkwise dir to detect settings.json change and trigger syncIgnore
+    await waitForCondition(() => {
+      const tracked = gitListTracked(root);
+      return !tracked.includes(relIgnored);
+    }, 15000, 500);
+
+    const tracked = gitListTracked(root);
+    assert.ok(!tracked.includes(relIgnored), `"${relIgnored}" should not be tracked after adding 'logs' to ignorePatterns`);
+    assert.ok(tracked.includes(relNormal), `"${relNormal}" should still be tracked`);
+  });
+
+  test('stale baselines from a previous session are cleaned on sync', async () => {
+    const root = getWorkspaceRoot();
+
+    // Create .gitignore first so it's loaded before enable
+    writeFileExternally(path.join(root, '.gitignore'), 'stale-dir/\n');
+    await sleep(1000); // let watcher pick up .gitignore
+
+    // Create a normal file
+    writeFileExternally(path.join(root, 'normal.txt'), 'normal\n');
+    // Also create files in the ignored dir (on disk but should not be tracked)
+    writeFileExternally(path.join(root, 'stale-dir', 'old.txt'), 'stale data\n');
+
+    await enableHunkwise();
+
+    // normal.txt should be tracked, stale-dir/old.txt should not
+    await waitForCondition(() => gitListTracked(root).includes('normal.txt'), 8000);
+    let tracked = gitListTracked(root);
+    assert.ok(!tracked.includes('stale-dir/old.txt'), 'ignored file should not be tracked on enable');
+
+    // Simulate a "previous session" leaving stale data in the hunkwise git repo:
+    // Inject stale-dir/old.txt directly into the git index, bypassing StateManager.
+    // This is what would happen if the file was tracked before .gitignore was updated,
+    // and VSCode was closed before syncIgnore could clean it up.
+    const env = hunkwiseGitEnv(root);
+    const hash = execSync('git hash-object -w --stdin', {
+      cwd: root, env, encoding: 'utf-8', input: 'stale data\n',
+    }).trim();
+    execSync(`git update-index --add --cacheinfo 100644,${hash},stale-dir/old.txt`, {
+      cwd: root, env,
+    });
+    execSync('git commit --amend --no-edit --allow-empty', { cwd: root, env });
+
+    // Verify the stale file is now in git (simulating leftover from previous session)
+    tracked = gitListTracked(root);
+    assert.ok(tracked.includes('stale-dir/old.txt'), 'stale file should be in git after injection');
+
+    // Trigger syncIgnoreState (as activation would do on restart)
+    await vscode.commands.executeCommand('hunkwise.setRespectGitignore', true);
+    await sleep(2000);
+
+    // The stale file should be cleaned up
+    tracked = gitListTracked(root);
+    assert.ok(!tracked.includes('stale-dir/old.txt'),
+      `stale-dir/old.txt should be removed after sync (tracked: ${tracked.join(', ')})`);
+    assert.ok(tracked.includes('normal.txt'), 'normal.txt should still be tracked');
+  });
 });

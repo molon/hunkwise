@@ -35,6 +35,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   syncIgnore = () => stateManager.syncIgnoreState(fp => fileWatcher.shouldIgnore(fp)).then(onStateChanged);
   fileWatcher.register(context);
 
+  // Sync ignore state on startup in case .gitignore or ignorePatterns
+  // changed while VSCode was closed.
+  if (stateManager.enabled) {
+    syncIgnore();
+  }
+
   decorationManager = new DecorationManager(stateManager, (command, filePath, hId) => {
     if (command === 'accept') {
       acceptHunk(stateManager, filePath, hId, onStateChanged);
