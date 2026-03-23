@@ -115,6 +115,67 @@ describe('HunkwiseGit', () => {
     });
   });
 
+  describe('renameFile', () => {
+    it('moves baseline from old path to new path', async () => {
+      const oldPath = path.join(tmpDir, 'rename-old.txt');
+      const newPath = path.join(tmpDir, 'rename-new.txt');
+      await git.snapshot(oldPath, 'rename content\n');
+      await git.renameFile(oldPath, newPath);
+      assert.equal(await git.getBaseline(newPath), 'rename content\n');
+      assert.equal(await git.getBaseline(oldPath), undefined);
+    });
+
+    it('preserves content for a file that was already reviewing', async () => {
+      const oldPath = path.join(tmpDir, 'reviewing-old.txt');
+      const newPath = path.join(tmpDir, 'reviewing-new.txt');
+      const content = 'line1\nline2\nline3\n';
+      await git.snapshot(oldPath, content);
+      await git.renameFile(oldPath, newPath);
+      assert.equal(await git.getBaseline(newPath), content);
+    });
+
+    it('works for new file (empty baseline)', async () => {
+      const oldPath = path.join(tmpDir, 'new-old.txt');
+      const newPath = path.join(tmpDir, 'new-new.txt');
+      await git.snapshot(oldPath, '');
+      await git.renameFile(oldPath, newPath);
+      assert.equal(await git.getBaseline(newPath), '');
+      assert.equal(await git.getBaseline(oldPath), undefined);
+    });
+
+    it('is a no-op for untracked file', async () => {
+      const oldPath = path.join(tmpDir, 'untracked-rename.txt');
+      const newPath = path.join(tmpDir, 'untracked-rename-new.txt');
+      await git.renameFile(oldPath, newPath); // should not throw
+      assert.equal(await git.getBaseline(newPath), undefined);
+    });
+
+    it('does not affect other tracked files', async () => {
+      const other = path.join(tmpDir, 'rename-other.txt');
+      const oldPath = path.join(tmpDir, 'rename-move-old.txt');
+      const newPath = path.join(tmpDir, 'rename-move-new.txt');
+      await git.snapshot(other, 'other\n');
+      await git.snapshot(oldPath, 'moving\n');
+      await git.renameFile(oldPath, newPath);
+      assert.equal(await git.getBaseline(other), 'other\n');
+      assert.equal(await git.getBaseline(newPath), 'moving\n');
+    });
+
+    it('renamed file appears in listTrackedFiles with new path', async () => {
+      const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hunkwise-rename-list-'));
+      const g2 = new HunkwiseGit(path.join(dir2, '.vscode', 'hunkwise'), dir2);
+      await g2.initGit();
+      const oldPath = path.join(dir2, 'a.txt');
+      const newPath = path.join(dir2, 'b.txt');
+      await g2.snapshot(oldPath, 'content\n');
+      await g2.renameFile(oldPath, newPath);
+      const tracked = await g2.listTrackedFiles();
+      assert.ok(tracked.includes(newPath));
+      assert.ok(!tracked.includes(oldPath));
+      fs.rmSync(dir2, { recursive: true, force: true });
+    });
+  });
+
   describe('listTrackedFiles', () => {
     it('returns empty when nothing tracked', async () => {
       // fresh instance to avoid interference
