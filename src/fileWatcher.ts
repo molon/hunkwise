@@ -335,7 +335,9 @@ export class FileWatcher {
     // External change — compare against hunkwise baseline
     const gitBaseline = await git.getBaseline(filePath);
     if (gitBaseline === undefined) {
-      // No baseline yet — snapshot current content as baseline
+      // No baseline yet — snapshot current content as baseline (file was likely
+      // created outside VSCode before hunkwise could observe it, or git data was lost)
+      log(`no baseline for ${path.basename(filePath)}, adopting current content`);
       this.stateManager.snapshotFile(filePath, diskContent);
       return;
     }

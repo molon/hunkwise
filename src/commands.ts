@@ -202,9 +202,13 @@ export function acceptHunk(
   ].join('\n');
 
   fileState.baseline = newBaseline;
-  stateManager.setFile(filePath, fileState);
-  if (computeHunks(newBaseline, doc.getText()).length === 0) {
+  const noMoreHunks = computeHunks(newBaseline, doc.getText()).length === 0;
+  if (noMoreHunks) {
+    // Last hunk accepted — exit reviewing and snapshot final content
     stateManager.exitReviewing(filePath, doc.getText());
+  } else {
+    // More hunks remain — update in-memory state and snapshot intermediate baseline
+    stateManager.setFile(filePath, fileState);
   }
   onStateChanged();
 }
