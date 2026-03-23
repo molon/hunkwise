@@ -7,6 +7,14 @@ import { log } from './log';
 
 const DEFAULT_IGNORE_PATTERNS = process.platform === 'darwin' ? ['.git', '.DS_Store'] : ['.git'];
 
+/** Format a list of absolute paths for logging: show relative paths, max 20. */
+function logFileList(files: string[], rootPath: string | undefined): string {
+  const rel = files.map(fp => rootPath ? path.relative(rootPath, fp) : fp);
+  const shown = rel.slice(0, 20);
+  const suffix = rel.length > 20 ? ` … and ${rel.length - 20} more` : '';
+  return shown.join(', ') + suffix;
+}
+
 export class StateManager {
   // In-memory cache — rebuilt from git on load(), updated synchronously on mutations
   private state: Map<string, FileState> = new Map();
@@ -83,7 +91,7 @@ export class StateManager {
     }));
     // Clean up stale ignored entries from the git repo
     if (ignored.length > 0) {
-      log(`load: removing ${ignored.length} ignored file(s) from git`);
+      log(`load: removing ${ignored.length} ignored file(s) from git: ${logFileList(ignored, this.workspaceRoot)}`);
       this.gitQueue = this.gitQueue.then(() => g.removeFileBatch(ignored)).catch(() => {});
     }
   }
@@ -299,26 +307,20 @@ export class StateManager {
       }
     }
     if (toRemove.length > 0) {
-      log(`syncIgnoreState: removing ${toRemove.length} file(s)`);
+      log(`syncIgnoreState: removing ${toRemove.length} file(s): ${logFileList(toRemove, this.workspaceRoot)}`);
     }
     for (const fp of toRemove) {
       this.state.delete(fp);
     }
     if (toRemove.length > 0) {
-      // Drain any previously queued git ops before the batch remove so we
-      // can measure how long the actual batch takes.
-      this.gitQueue = this.gitQueue.then(async () => {
-        log('syncIgnoreState: gitQueue drained, starting removeFileBatch');
-        await g.removeFileBatch(toRemove);
-        log('syncIgnoreState: removeFileBatch done');
-      }).catch(() => {});
+      this.gitQueue = this.gitQueue.then(() => g.removeFileBatch(toRemove)).catch(() => {});
     }
 
     // Add newly allowed files not yet tracked
     const trackedSet = new Set(trackedFiles);
     const toAdd = allowedFiles.filter(fp => !trackedSet.has(fp));
     if (toAdd.length > 0) {
-      log(`syncIgnoreState: adding ${toAdd.length} file(s)`);
+      log(`syncIgnoreState: adding ${toAdd.length} file(s): ${logFileList(toAdd, this.workspaceRoot)}`);
     }
     if (toAdd.length > 0) {
       const batch: { filePath: string; content: string }[] = [];
