@@ -108,9 +108,9 @@ export class StateManager {
     return this.state.get(filePath);
   }
 
-  setFile(filePath: string, state: FileState): void {
+  setFile(filePath: string, state: FileState, skipSnapshot?: boolean): void {
     this.state.set(filePath, state);
-    if (this._git) {
+    if (!skipSnapshot && this._git) {
       const g = this._git;
       const baseline = state.baseline;
       this.gitQueue = this.gitQueue.then(() => g.snapshot(filePath, baseline)).catch(() => {});
@@ -168,18 +168,6 @@ export class StateManager {
     }
   }
 
-  clearAllFiles(): void {
-    const paths = Array.from(this.state.keys());
-    this.state.clear();
-    if (this._git) {
-      const g = this._git;
-      this.gitQueue = this.gitQueue.then(async () => {
-        for (const fp of paths) {
-          await g.removeFile(fp);
-        }
-      }).catch(() => {});
-    }
-  }
 
   // ── settings ──────────────────────────────────────────────────────────────
 
