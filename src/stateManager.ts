@@ -4,7 +4,7 @@ import * as path from 'path';
 import { FileState } from './types';
 import { HunkwiseGit } from './hunkwiseGit';
 
-const DEFAULT_IGNORE_PATTERNS = ['.git'];
+const DEFAULT_IGNORE_PATTERNS = process.platform === 'darwin' ? ['.git', '.DS_Store'] : ['.git'];
 
 export class StateManager {
   // In-memory cache — rebuilt from git on load(), updated synchronously on mutations

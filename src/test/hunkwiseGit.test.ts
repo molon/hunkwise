@@ -210,7 +210,8 @@ describe('HunkwiseGit', () => {
       const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hunkwise-settings-'));
       const g2 = new HunkwiseGit(path.join(dir2, '.vscode', 'hunkwise'), dir2);
       const s = g2.loadSettings();
-      assert.deepEqual(s.ignorePatterns, ['.git']);
+      const expectedDefaults = process.platform === 'darwin' ? ['.git', '.DS_Store'] : ['.git'];
+      assert.deepEqual(s.ignorePatterns, expectedDefaults);
       assert.equal(s.respectGitignore, true);
       fs.rmSync(dir2, { recursive: true, force: true });
     });

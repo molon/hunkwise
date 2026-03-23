@@ -11,7 +11,7 @@ interface Settings {
 }
 
 const DEFAULT_SETTINGS: Settings = {
-  ignorePatterns: ['.git'],
+  ignorePatterns: process.platform === 'darwin' ? ['.git', '.DS_Store'] : ['.git'],
   respectGitignore: true,
 };
 
