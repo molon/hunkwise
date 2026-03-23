@@ -3,7 +3,7 @@
   "publisher": "molon",
   "displayName": "hunkwise",
   "description": "Per-hunk Accept/Discard for any file change",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "engines": {
     "vscode": "^1.90.0"
   },

@@ -8,6 +8,33 @@ import { StateManager } from './stateManager';
 import { computeHunks } from './diffEngine';
 import { log } from './log';
 
+// Transform gitignore rules from a sub-directory so they work in a single
+// root-level matcher. Adds the directory's relative path as prefix, handling
+// anchored (/), unanchored (any-depth), negation (!) and comment lines.
+function prefixGitignoreRules(content: string, prefix: string): string {
+  return content.split('\n').map(line => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) return line;
+
+    const neg = trimmed.startsWith('!');
+    let pattern = neg ? trimmed.slice(1) : trimmed;
+
+    if (pattern.startsWith('/')) {
+      // Anchored to directory: /dist → prefix/dist
+      pattern = prefix + pattern;
+    } else if (!pattern.includes('/') || (pattern.endsWith('/') && !pattern.slice(0, -1).includes('/'))) {
+      // No internal slash (or only trailing slash): matches any depth
+      // *.tmp → prefix/**/*.tmp, build/ → prefix/**/build/
+      pattern = prefix + '/**/' + pattern;
+    } else {
+      // Has internal slash: relative to directory: foo/bar → prefix/foo/bar
+      pattern = prefix + '/' + pattern;
+    }
+
+    return (neg ? '!' : '') + pattern;
+  }).join('\n');
+}
+
 export class FileWatcher {
   private disposables: vscode.Disposable[] = [];
   private selfEditFiles: Set<string> = new Set();
@@ -33,12 +60,7 @@ export class FileWatcher {
   register(context: vscode.ExtensionContext): void {
     this.loadGitignore();
 
-    // Only watch the root .gitignore — sub-directory .gitignore changes (e.g. from
-    // integration tests in workspace sub-folders) must not reset the matcher or trigger sync.
-    const rootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const gitignoreWatcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(rootPath || '', '.gitignore')
-    );
+    const gitignoreWatcher = vscode.workspace.createFileSystemWatcher('**/.gitignore');
     gitignoreWatcher.onDidChange(() => { this.loadGitignore(); this.onIgnoreRulesChanged?.(); });
     gitignoreWatcher.onDidCreate(() => { this.loadGitignore(); this.onIgnoreRulesChanged?.(); });
     gitignoreWatcher.onDidDelete(() => { this.loadGitignore(); this.onIgnoreRulesChanged?.(); });
@@ -131,13 +153,40 @@ export class FileWatcher {
       } catch { /* no global gitignore */ }
     }
 
-    // Load workspace .gitignore
-    const gitignorePath = path.join(rootPath, '.gitignore');
+    // Collect all .gitignore files recursively from workspace root.
+    // Root .gitignore rules are added directly; sub-directory rules get a
+    // relative-path prefix so the single matcher instance handles scoping.
+    this.collectGitignores(rootPath, rootPath);
+  }
+
+  /**
+   * Recursively collect .gitignore files starting from `dir`.
+   * Skips directories already ignored by the current matcher state.
+   */
+  private collectGitignores(dir: string, rootPath: string): void {
+    const gitignorePath = path.join(dir, '.gitignore');
     try {
       const content = fs.readFileSync(gitignorePath, 'utf-8');
-      this.gitignoreMatcher.add(content);
-    } catch {
-      // No .gitignore — matcher stays empty (global rules still active)
+      if (dir === rootPath) {
+        this.gitignoreMatcher.add(content);
+      } else {
+        const prefix = path.relative(rootPath, dir);
+        this.gitignoreMatcher.add(prefixGitignoreRules(content, prefix));
+      }
+    } catch { /* no .gitignore in this directory */ }
+
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch { return; }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const full = path.join(dir, entry.name);
+      const rel = path.relative(rootPath, full);
+      // Skip directories already ignored — no need to descend
+      if (this.gitignoreMatcher.ignores(rel + '/')) continue;
+      this.collectGitignores(full, rootPath);
     }
   }
 

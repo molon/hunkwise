@@ -388,4 +388,56 @@ suite('hunkwise ignore/gitignore integration', function () {
       `dist/app.js should be removed after adding dist/ to .gitignore (tracked: ${tracked.join(', ')})`);
     assert.ok(tracked.includes('keep.txt'), 'keep.txt should still be tracked');
   });
+
+  test('nested .gitignore rules are respected', async () => {
+    const root = getWorkspaceRoot();
+
+    // Root .gitignore: ignore node_modules/
+    writeFileExternally(path.join(root, '.gitignore'), 'node_modules/\n');
+    // Sub-directory .gitignore in src/: ignore *.tmp and build/
+    writeFileExternally(path.join(root, 'src', '.gitignore'), '*.tmp\nbuild/\n');
+
+    // Create files: some should be tracked, some ignored
+    writeFileExternally(path.join(root, 'keep.txt'), 'keep\n');
+    writeFileExternally(path.join(root, 'src', 'app.ts'), 'code\n');
+    writeFileExternally(path.join(root, 'src', 'debug.tmp'), 'temp\n');
+    writeFileExternally(path.join(root, 'src', 'build', 'out.js'), 'built\n');
+    writeFileExternally(path.join(root, 'src', 'sub', 'deep.tmp'), 'deep temp\n');
+    writeFileExternally(path.join(root, 'node_modules', 'pkg', 'index.js'), 'module\n');
+    // A .tmp file NOT in src/ should be tracked (rule scoped to src/)
+    writeFileExternally(path.join(root, 'root.tmp'), 'root temp\n');
+
+    await enableHunkwise();
+    await waitForCondition(() => gitListTracked(root).includes('keep.txt'), 8000);
+
+    const tracked = gitListTracked(root);
+    assert.ok(tracked.includes('keep.txt'), 'keep.txt should be tracked');
+    assert.ok(tracked.includes('src/app.ts'), 'src/app.ts should be tracked');
+    assert.ok(tracked.includes('root.tmp'), 'root.tmp should be tracked (not in src/)');
+    assert.ok(!tracked.includes('src/debug.tmp'), 'src/debug.tmp should be ignored by src/.gitignore');
+    assert.ok(!tracked.includes('src/sub/deep.tmp'), 'src/sub/deep.tmp should be ignored by src/.gitignore');
+    assert.ok(!tracked.includes('src/build/out.js'), 'src/build/out.js should be ignored by src/.gitignore');
+    assert.ok(!tracked.some(f => f.startsWith('node_modules/')), 'node_modules/ should be ignored');
+  });
+
+  test('adding nested .gitignore removes already-tracked files via syncIgnoreState', async () => {
+    const root = getWorkspaceRoot();
+
+    // Start with no nested .gitignore — all files tracked
+    writeFileExternally(path.join(root, 'src', 'app.ts'), 'code\n');
+    writeFileExternally(path.join(root, 'src', 'debug.tmp'), 'temp\n');
+
+    await enableHunkwise();
+    await waitForCondition(() => gitListTracked(root).includes('src/debug.tmp'), 8000);
+
+    // Now add a nested .gitignore that ignores *.tmp
+    await writeFileViaVSCode(path.join(root, 'src', '.gitignore'), '*.tmp\n');
+
+    // syncIgnoreState should remove src/debug.tmp
+    await waitForCondition(() => !gitListTracked(root).includes('src/debug.tmp'), 15000, 200);
+
+    const tracked = gitListTracked(root);
+    assert.ok(tracked.includes('src/app.ts'), 'src/app.ts should still be tracked');
+    assert.ok(!tracked.includes('src/debug.tmp'), 'src/debug.tmp should be removed after nested .gitignore added');
+  });
 });
