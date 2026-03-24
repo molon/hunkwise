@@ -150,12 +150,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
   // so that file create/delete/change events caused by git checkout don't produce
   // false reviewing entries, then re-sync all baselines to the new branch content.
   //
-  // Two subtleties on macOS:
-  // 1. fs.watch may stop firing after git replaces .git/HEAD (atomic rename).
-  //    We recreate the watcher after each event.
-  // 2. FSEvents from git checkout are delivered asynchronously and may arrive
-  //    after clearHunksOnBranchSwitch completes. We keep the file watcher
-  //    suppressed for an extra delay after git ops finish.
+  // On macOS, git checkout replaces .git/HEAD via atomic rename, which can
+  // invalidate fs.watch. We recreate the watcher after every event.
+  //
+  // No extra delay is needed after clearHunksOnBranchSwitch completes: the
+  // re-sync updates all baselines to match current disk content, so any late
+  // FSEvents that arrive after resumeAll() will compare disk vs baseline,
+  // find 0 hunks, and be harmless no-ops.
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   if (workspaceRoot) {
     const gitHeadPath = path.join(workspaceRoot, '.git', 'HEAD');
@@ -183,16 +184,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
               stateManager.clearHunksOnBranchSwitch(
                 (fp, isDir) => fileWatcher.shouldIgnore(fp, isDir)
               ).then(() => {
-                // Keep suppressed for extra time to let late FSEvents drain
-                setTimeout(() => {
-                  fileWatcher.resumeAll();
-                  onStateChanged();
-                }, 2000);
+                fileWatcher.resumeAll();
+                onStateChanged();
               }).catch(() => {
-                setTimeout(() => {
-                  fileWatcher.resumeAll();
-                  onStateChanged();
-                }, 2000);
+                fileWatcher.resumeAll();
+                onStateChanged();
               });
             }
           });
