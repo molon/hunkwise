@@ -198,7 +198,7 @@ export class DecorationManager {
         actionAfterLine = hunk.newStart + hunk.newLines - 2;
       } else {
         // Pure deletion: no green block. Action bar shares the same afterLine as the
-        // deleted inset. VSCode stacks insets at the same afterLine with the last-pushed
+        // deleted inset. VSCode stacks insets at the same afterLine with the first-pushed
         // on top, so we rely on push order below to place deleted above action.
         actionAfterLine = deletedAfterLine;
       }
