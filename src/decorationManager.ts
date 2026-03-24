@@ -171,40 +171,21 @@ export class DecorationManager {
       //   [green lines]     added lines in the actual document
       //   [action bar]      Accept / Discard buttons
       //
-      // afterLine is 0-based: inset appears AFTER that line number.
-      // afterLine=0 means "before line 1" (very top of file).
-      //
-      // Normal case (newStart > 1):
-      //   deleted → afterLine = newStart - 2  (just above the green block)
-      //   action  → afterLine = newStart + newLines - 2  (just below the green block)
-      //
-      // Pure deletion (newLines == 0):
-      //   deleted → afterLine = newStart - 2
-      //   action  → afterLine = newStart - 2 + removedCount  (below deleted block)
-      //
-      // File-start case (newStart == 1):
-      //   Cannot insert above line 1, so we stack below the green block:
-      //   deleted → afterLine = newLines  (below green block)
-      //   action  → afterLine = newLines + removedCount  (below deleted block)
-      //
-      // File-start pure deletion (newStart == 1, newLines == 0):
-      //   deleted → afterLine = 0
-      //   action  → afterLine = removedCount  (below deleted block)
-
       // ── afterLine semantics ──
       // createWebviewTextEditorInset takes a 0-based line number.
       // Internally VSCode does +1 before storing as afterLineNumber (1-based).
       // afterLineNumber=0 means "above line 1" (file top).
       // So to place an inset above line 1 we must pass afterLine = -1.
       //
-      // Desired layout (top → bottom) for every hunk:
-      //   [deleted inset]   red lines (afterLine = newStart - 2, i.e. above the green block)
-      //   [green lines]     added lines in the actual document  (lines newStart … newStart+newLines-1)
-      //   [action bar]      Accept/Discard  (afterLine = newStart + newLines - 2, i.e. below the green block)
+      // Normal case (newLines > 0):
+      //   deleted → afterLine = newStart - 2  (just above the green block)
+      //   action  → afterLine = newStart + newLines - 2  (just below the green block)
+      //   Different afterLines, so push order doesn't matter.
       //
-      // When newLines == 0 (pure deletion): no green block, action goes below deleted.
-      //   deleted afterLine = newStart - 2
-      //   action  afterLine = newStart - 2 + removedCount
+      // Pure deletion (newLines == 0):
+      //   Both deleted and action use afterLine = newStart - 2 (same value).
+      //   VSCode stacks insets at the same afterLine with the LAST-pushed on TOP.
+      //   So we push action first, then deleted, to render deleted above action.
 
       const hasDeletion = hunk.removedContent.length > 0;
       const hasAddition = hunk.newLines > 0;
