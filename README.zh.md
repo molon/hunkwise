@@ -2,6 +2,10 @@
 
 在 VSCode 中对任意文件变更进行逐块（hunk）接受/丢弃操作。
 
+[Claude Code](https://docs.anthropic.com/en/docs/claude-code)、[OpenCode](https://github.com/opencode-ai/opencode) 等 AI 编程工具以 CLI 或插件形式运行，不像 Cursor、Windsurf、Copilot 那样拥有原生 IDE，因此缺少逐块审查变更的内置体验。hunkwise 正是为此而生——将逐块 review 控件直接带入 VSCode，适用于任何外部文件变更。
+
+![snapshot](media/snapshot.png)
+
 ## 功能特性
 
 - 追踪来自任何来源的文件变更（AI 工具、脚本、手动编辑）
@@ -69,6 +73,7 @@ npx skills add https://github.com/molon/hunkwise --skill install-hunkwise -g -y
 | ------ | ------ | ---- |
 | `ignorePatterns` | `[".git"]` | 不追踪的 glob 模式列表 |
 | `respectGitignore` | `true` | 是否遵守 `.gitignore` 规则 |
+| `clearOnBranchSwitch` | `false` | 切换 git 分支时自动清除所有待处理的 hunk |
 
 ## .gitignore
 

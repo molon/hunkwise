@@ -2,6 +2,8 @@
 
 Per-hunk Accept/Discard for any file change in VSCode.
 
+AI coding tools like [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [OpenCode](https://github.com/opencode-ai/opencode), and other CLI/plugin-based assistants lack a native IDE — unlike Cursor, Windsurf, or Copilot, they have no built-in way to review changes hunk by hunk. hunkwise fills that gap by bringing per-hunk review controls directly into VSCode for any external file change.
+
 ![snapshot](media/snapshot.png)
 
 ## Features
@@ -67,6 +69,7 @@ Settings are stored in `.vscode/hunkwise/settings.json` and can be changed via t
 | ------- | ------- | ----------- |
 | `ignorePatterns` | `[".git"]` | Glob patterns to exclude from tracking |
 | `respectGitignore` | `true` | Whether to honor `.gitignore` rules |
+| `clearOnBranchSwitch` | `false` | Automatically clear all pending hunks when git branch changes |
 
 ## .gitignore
 

@@ -229,7 +229,16 @@ export class ReviewPanel implements vscode.WebviewViewProvider {
         break;
       case 'openFile':
         if (msg.filePath) {
-          await vscode.window.showTextDocument(vscode.Uri.file(msg.filePath));
+          const fileState = this.stateManager.getFile(msg.filePath);
+          const doc = await vscode.window.showTextDocument(vscode.Uri.file(msg.filePath));
+          if (fileState) {
+            const hunks = computeHunks(fileState.baseline, doc.document.getText());
+            if (hunks.length > 0) {
+              const pos = new vscode.Position(Math.max(0, hunks[0].newStart - 1), 0);
+              doc.selection = new vscode.Selection(pos, pos);
+              doc.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+            }
+          }
         }
         break;
       case 'openDeletedDiff':
