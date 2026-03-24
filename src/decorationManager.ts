@@ -184,8 +184,8 @@ export class DecorationManager {
       //
       // Pure deletion (newLines == 0):
       //   Both deleted and action use afterLine = newStart - 2 (same value).
-      //   VSCode stacks insets at the same afterLine with the LAST-pushed on TOP.
-      //   So we push action first, then deleted, to render deleted above action.
+      //   VSCode stacks insets at the same afterLine with the FIRST-pushed on TOP.
+      //   So we push deleted first, then action, to render deleted above action.
 
       const hasDeletion = hunk.removedContent.length > 0;
       const hasAddition = hunk.newLines > 0;
@@ -198,44 +198,29 @@ export class DecorationManager {
         actionAfterLine = hunk.newStart + hunk.newLines - 2;
       } else {
         // Pure deletion: no green block. Action bar shares the same afterLine as the
-        // deleted inset. VSCode stacks insets at the same afterLine with the last-pushed
+        // deleted inset. VSCode stacks insets at the same afterLine with the first-pushed
         // on top, so we rely on push order below to place deleted above action.
         actionAfterLine = deletedAfterLine;
       }
 
       // When multiple insets share the same afterLine, VSCode stacks them so that
-      // the LAST pushed inset appears TOPMOST.  For the normal case (deletion above
+      // the FIRST pushed inset appears TOPMOST.  For the normal case (deletion above
       // green lines, action below), they have different afterLines so push order
-      // doesn't matter.  For pure deletion (same afterLine), we push action first,
-      // then deleted, so deleted renders above action.
+      // doesn't matter.  For pure deletion (same afterLine), we push deleted first,
+      // then action, so deleted renders above action.
 
-      if (hasDeletion && !hasAddition) {
-        // Pure deletion: same afterLine — push action first so deleted stacks on top
-        specs.push({
-          afterLine: actionAfterLine,
-          height: 2,
-          html: buildActionsHtml(filePath, id),
-        });
+      if (hasDeletion) {
         specs.push({
           afterLine: Math.max(-1, deletedAfterLine),
           height: hunk.removedContent.length,
           html: buildDeletedHtml(hunk.removedContent, tabSize),
         });
-      } else {
-        // Normal case: different afterLines
-        if (hasDeletion) {
-          specs.push({
-            afterLine: Math.max(-1, deletedAfterLine),
-            height: hunk.removedContent.length,
-            html: buildDeletedHtml(hunk.removedContent, tabSize),
-          });
-        }
-        specs.push({
-          afterLine: actionAfterLine,
-          height: 2,
-          html: buildActionsHtml(filePath, id),
-        });
       }
+      specs.push({
+        afterLine: actionAfterLine,
+        height: 2,
+        html: buildActionsHtml(filePath, id),
+      });
     }
 
     // Reuse existing insets when cache keys match to avoid flicker
