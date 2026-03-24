@@ -217,24 +217,44 @@ export class DecorationManager {
         actionAfterLine = hunk.newStart + hunk.newLines - 2;
       } else {
         // Pure deletion: no green block. Action bar shares the same afterLine as the
-        // deleted inset — VSCode stacks multiple insets at the same afterLine in push order,
-        // so deleted (pushed first) appears above action bar (pushed second).
+        // deleted inset. VSCode stacks insets at the same afterLine with the last-pushed
+        // on top, so we rely on push order below to place deleted above action.
         actionAfterLine = deletedAfterLine;
       }
 
-      if (hasDeletion) {
+      // When multiple insets share the same afterLine, VSCode stacks them so that
+      // the LAST pushed inset appears TOPMOST.  For the normal case (deletion above
+      // green lines, action below), they have different afterLines so push order
+      // doesn't matter.  For pure deletion (same afterLine), we push action first,
+      // then deleted, so deleted renders above action.
+
+      if (hasDeletion && !hasAddition) {
+        // Pure deletion: same afterLine — push action first so deleted stacks on top
+        specs.push({
+          afterLine: actionAfterLine,
+          height: 2,
+          html: buildActionsHtml(filePath, id),
+        });
         specs.push({
           afterLine: Math.max(-1, deletedAfterLine),
           height: hunk.removedContent.length,
           html: buildDeletedHtml(hunk.removedContent, tabSize),
         });
+      } else {
+        // Normal case: different afterLines
+        if (hasDeletion) {
+          specs.push({
+            afterLine: Math.max(-1, deletedAfterLine),
+            height: hunk.removedContent.length,
+            html: buildDeletedHtml(hunk.removedContent, tabSize),
+          });
+        }
+        specs.push({
+          afterLine: actionAfterLine,
+          height: 2,
+          html: buildActionsHtml(filePath, id),
+        });
       }
-
-      specs.push({
-        afterLine: actionAfterLine,
-        height: 2,
-        html: buildActionsHtml(filePath, id),
-      });
     }
 
     // Reuse existing insets when cache keys match to avoid flicker
