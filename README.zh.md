@@ -2,7 +2,8 @@
 
 在 VSCode 中对任意文件变更进行逐块（hunk）接受/丢弃操作。
 
-[Claude Code](https://docs.anthropic.com/en/docs/claude-code)、[OpenCode](https://github.com/opencode-ai/opencode) 等 AI 编程工具以 CLI 或插件形式运行，不像 Cursor、Windsurf、Copilot 那样拥有原生 IDE，因此缺少逐块审查变更的内置体验。hunkwise 正是为此而生——将逐块 review 控件直接带入 VSCode，适用于任何外部文件变更。
+[Claude Code](https://docs.anthropic.com/en/docs/claude-code)、[OpenCode](https://github.com/opencode-ai/opencode) 等 AI 编程工具以 CLI 或插件形式运行，不像 Cursor、Windsurf、Copilot 那样拥有原生 IDE，因此缺少逐块审查变更的内置体验。
+**hunkwise** 正是为此而生——将逐块 review 控件直接带入 VSCode，适用于任何外部文件变更。
 
 ![snapshot](media/snapshot.png)
 
