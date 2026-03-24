@@ -84,14 +84,13 @@ done
 **Windows — detect and install into all present builds:**
 
 ```bat
-set VSIX=hunkwise-0.0.1.vsix
+REM Use the actual .vsix filename produced by vsce in Step 3
+for %%f in (hunkwise-*.vsix) do set VSIX=%%f
 set STABLE=%LOCALAPPDATA%\Programs\Microsoft VS Code\bin\code.cmd
 set INSIDERS=%LOCALAPPDATA%\Programs\Microsoft VS Code Insiders\bin\code-insiders.cmd
 if exist "%STABLE%" "%STABLE%" --install-extension %VSIX% --force
 if exist "%INSIDERS%" "%INSIDERS%" --install-extension %VSIX% --force
 ```
-
-Replace `hunkwise-0.0.1.vsix` with the actual filename produced by vsce.
 
 ### Step 5: Configure proposed API (one-time setup per build)
 

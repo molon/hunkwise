@@ -74,12 +74,54 @@ npx skills add https://github.com/molon/hunkwise --skill install-hunkwise -g -y
 
 启用时，hunkwise 会自动将 `.vscode/hunkwise/` 添加到项目的 `.gitignore` 文件中。
 
+## 工作原理
+
+### 基线追踪
+
+启用 hunkwise 后，它会将工作区所有文件快照到一个位于 `.vscode/hunkwise/git/` 的私有 git 仓库中。该仓库存储**基线** —— 即 hunkwise 开始追踪时每个文件的内容。仓库始终只有一个 commit（每次变更都使用 `--amend`）。
+
+当外部工具修改文件时，hunkwise 会将当前内容与存储的基线进行 diff 以生成 hunk。接受某个 hunk 会更新基线；丢弃某个 hunk 则恢复基线内容。
+
+### 外部变更 vs 手动编辑检测
+
+hunkwise 会区分以下两种情况：
+
+- **外部变更**（AI 工具、脚本）：当磁盘上的文件内容与编辑器缓冲区不一致时被检测到。这会触发审查模式并显示内联 hunk。
+- **手动编辑**（用户在 VSCode 中输入）：保存后编辑器缓冲区与磁盘内容一致。这会静默更新基线 —— 不会产生 hunk。
+
+这意味着你可以在 hunkwise 启用期间自由编辑文件，只有工具生成的变更才会产生 hunk。
+
+### 文件重命名与删除处理
+
+- **手动重命名**（通过 VSCode 资源管理器/API）：hunkwise 会将基线迁移到新路径，不会产生虚假的删除 hunk。
+- **手动删除**（通过 VSCode 资源管理器/API）：hunkwise 移除基线，不会产生删除 hunk。
+- **外部删除**（工具删除文件）：显示删除 hunk，以便你可以审查并在需要时恢复。
+
+### 忽略规则
+
+文件可通过两种机制排除追踪：
+
+1. **ignorePatterns**（`.vscode/hunkwise/settings.json` 中）—— 自定义模式（默认：`[".git"]`，macOS 上还包括 `".DS_Store"`）
+2. **`.gitignore`** —— 当 `respectGitignore` 为 true（默认）时，遵守工作区 `.gitignore` 规则
+
+当忽略规则变更（`.gitignore` 被修改，或通过设置更新模式）时，hunkwise 会自动：
+
+- 移除现在被忽略的文件的基线
+- 为新放行的文件添加基线
+
+### 状态持久化
+
+所有基线数据存储在 git 仓库中，可跨 VSCode 重启保留。重新激活时，hunkwise 从 `git ls-tree HEAD` + `git show :path` 读取基线以恢复内存状态。
+
 ## 开发
 
 ```bash
-npm run compile   # 编译 TypeScript
-npm run watch     # 监听模式
-npm test          # 运行单元测试
+npm run compile          # 编译 TypeScript
+npm run watch            # 监听模式
+npm test                 # 运行单元测试（node:test 框架）
+npm run test:integration # 运行 VSCode 集成测试
 ```
 
-测试覆盖 `diffEngine`、`hunkwiseGit` 和 `gitignoreManager`，使用 Node 内置测试框架（`node:test`）运行，无需额外依赖。
+单元测试覆盖 `diffEngine`、`hunkwiseGit` 和 `gitignoreManager`，使用 Node 内置测试框架（`node:test`）运行，无需额外依赖。
+
+集成测试通过 `@vscode/test-cli` 在真实的 VSCode 扩展宿主中运行，覆盖重命名/删除处理、.gitignore 同步、文件监听以及启用/禁用生命周期。

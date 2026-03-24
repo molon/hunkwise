@@ -3,7 +3,12 @@
   "publisher": "molon",
   "displayName": "hunkwise",
   "description": "Per-hunk Accept/Discard for any file change",
-  "version": "0.0.15",
+  "version": "0.0.16",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/molon/hunkwise"
+  },
   "engines": {
     "vscode": "^1.90.0"
   },
