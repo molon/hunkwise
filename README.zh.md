@@ -1,5 +1,11 @@
 # hunkwise
 
+<p align="center">
+  <img src="media/icon.png" width="128" alt="hunkwise logo">
+</p>
+
+<p align="center"><em>Your future self will thank you. Or blame you. It depends on the diff.</em></p>
+
 在 VSCode 中对任意文件变更进行逐块（hunk）接受/丢弃操作。
 
 [Claude Code](https://docs.anthropic.com/en/docs/claude-code)、[OpenCode](https://github.com/anomalyco/opencode) 等 AI 编程工具以 CLI 或插件形式运行，不像 Cursor、Windsurf、Copilot 那样拥有原生 IDE，因此缺少逐块审查变更的内置体验。

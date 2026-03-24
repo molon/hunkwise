@@ -1,5 +1,11 @@
 # hunkwise
 
+<p align="center">
+  <img src="media/icon.png" width="128" alt="hunkwise logo">
+</p>
+
+<p align="center"><em>Your future self will thank you. Or blame you. It depends on the diff.</em></p>
+
 Per-hunk Accept/Discard for any file change in VSCode.
 
 AI coding tools like [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [OpenCode](https://github.com/anomalyco/opencode), and other CLI/plugin-based assistants lack a native IDE — unlike Cursor, Windsurf, or Copilot, they have no built-in way to review changes hunk by hunk.
