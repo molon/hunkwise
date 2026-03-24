@@ -6,6 +6,7 @@ import { FileWatcher } from './fileWatcher';
 import { ReviewPanel } from './reviewPanel';
 import { computeHunks, hunkId } from './diffEngine';
 import { upsertGitignore } from './gitignoreManager';
+import { log } from './log';
 
 export function registerCommands(
   context: vscode.ExtensionContext,
@@ -24,13 +25,22 @@ export function registerCommands(
     vscode.commands.registerCommand('hunkwise.setIgnorePatterns', async (patterns: string[]) => {
       stateManager.setIgnorePatterns(patterns);
       onStateChanged();
-      await stateManager.syncIgnoreState(fp => fileWatcher.shouldIgnore(fp));
+      await stateManager.syncIgnoreState((fp, isDir) => fileWatcher.shouldIgnore(fp, isDir));
       onStateChanged();
     }),
     vscode.commands.registerCommand('hunkwise.setRespectGitignore', async (value: boolean) => {
       stateManager.setRespectGitignore(value);
       onStateChanged();
-      await stateManager.syncIgnoreState(fp => fileWatcher.shouldIgnore(fp));
+      await stateManager.syncIgnoreState((fp, isDir) => fileWatcher.shouldIgnore(fp, isDir));
+      onStateChanged();
+    }),
+    vscode.commands.registerCommand('hunkwise.setClearOnBranchSwitch', (value: boolean) => {
+      stateManager.setClearOnBranchSwitch(value);
+    }),
+    vscode.commands.registerCommand('hunkwise.clearHunks', async () => {
+      await stateManager.clearHunksOnBranchSwitch(
+        (fp, isDir) => fileWatcher.shouldIgnore(fp, isDir)
+      );
       onStateChanged();
     }),
   );
@@ -42,6 +52,7 @@ async function enableHunkwise(
   reviewPanel: ReviewPanel,
   onStateChanged: () => void
 ): Promise<void> {
+  log('enable');
   reviewPanel.setLoading(true);
   try {
     await Promise.all([
@@ -49,7 +60,7 @@ async function enableHunkwise(
       (async () => {
         await stateManager.setEnabled(true);
         try { upsertGitignore(); } catch { /* non-fatal */ }
-        await stateManager.snapshotWorkspace(fp => fileWatcher.shouldIgnore(fp));
+        await stateManager.snapshotWorkspace((fp, isDir) => fileWatcher.shouldIgnore(fp, isDir));
       })(),
     ]);
   } finally {
@@ -62,6 +73,7 @@ async function disableHunkwise(
   stateManager: StateManager,
   onStateChanged: () => void
 ): Promise<void> {
+  log('disable');
   stateManager.setEnabled(false);
   onStateChanged();
 }
@@ -71,7 +83,13 @@ export async function acceptAllFiles(
   onStateChanged: () => void
 ): Promise<void> {
   for (const filePath of Array.from(stateManager.getAllFiles().keys())) {
-    stateManager.removeFile(filePath);
+    let content: string;
+    try { content = fs.readFileSync(filePath, 'utf-8'); } catch { content = ''; }
+    if (content === '') {
+      stateManager.removeFile(filePath);
+    } else {
+      stateManager.exitReviewing(filePath, content);
+    }
   }
   onStateChanged();
 }
@@ -94,7 +112,7 @@ export async function discardAllFiles(
       edit.replace(uri, fullRange, fileState.baseline);
       await vscode.workspace.applyEdit(edit);
       await doc.save();
-      stateManager.removeFile(filePath);
+      stateManager.exitReviewing(filePath);
     } catch { /* skip files that can't be opened */ } finally {
       fileWatcher.clearSelfEdit(filePath);
     }
@@ -108,7 +126,13 @@ export function acceptFileByPath(
   onStateChanged: () => void
 ): void {
   if (!stateManager.getFile(filePath)) return;
-  stateManager.removeFile(filePath);
+  let content: string;
+  try { content = fs.readFileSync(filePath, 'utf-8'); } catch { content = ''; }
+  if (content === '') {
+    stateManager.removeFile(filePath);
+  } else {
+    stateManager.exitReviewing(filePath, content);
+  }
   onStateChanged();
 }
 
@@ -146,7 +170,12 @@ export async function discardFileByPath(
   } finally {
     fileWatcher.clearSelfEdit(filePath);
   }
-  stateManager.removeFile(filePath);
+  if (fileState.baseline === '') {
+    // Discarding a new file means it was deleted — remove from tracking
+    stateManager.removeFile(filePath);
+  } else {
+    stateManager.exitReviewing(filePath);
+  }
   onStateChanged();
 }
 
@@ -175,9 +204,13 @@ export function acceptHunk(
   ].join('\n');
 
   fileState.baseline = newBaseline;
-  stateManager.setFile(filePath, fileState);
-  if (computeHunks(newBaseline, doc.getText()).length === 0) {
-    stateManager.removeFile(filePath);
+  const noMoreHunks = computeHunks(newBaseline, doc.getText()).length === 0;
+  if (noMoreHunks) {
+    // Last hunk accepted — exit reviewing and snapshot final content
+    stateManager.exitReviewing(filePath, doc.getText());
+  } else {
+    // More hunks remain — update in-memory state and snapshot intermediate baseline
+    stateManager.setFile(filePath, fileState);
   }
   onStateChanged();
 }
@@ -222,7 +255,7 @@ export async function discardHunk(
     const saved = vscode.workspace.textDocuments.find(d => d.uri.fsPath === filePath);
     if (saved) await saved.save();
     if (computeHunks(fileState.baseline, saved?.getText() ?? doc.getText()).length === 0) {
-      stateManager.removeFile(filePath);
+      stateManager.exitReviewing(filePath);
     }
     onStateChanged();
   } finally {

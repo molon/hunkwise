@@ -18,7 +18,7 @@ function escapeHtml(s: string): string {
 }
 
 // ── Deleted-lines inset ───────────────────────────────────────────────────────
-function buildDeletedHtml(lines: string[]): string {
+function buildDeletedHtml(lines: string[], tabSize: number): string {
   const rows = lines.map(l => `<div class="line">${escapeHtml(l)}</div>`).join('');
   return `<!DOCTYPE html><html style="background:var(--vscode-diffEditor-removedLineBackground,rgba(255,0,0,0.1))"><head>
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline';">
@@ -32,7 +32,7 @@ body {
   font-size: var(--vscode-editor-font-size, 13px);
   line-height: var(--vscode-editor-line-height, 1.5);
 }
-.line { white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+.line { white-space: pre; overflow: hidden; text-overflow: ellipsis; tab-size: ${tabSize}; }
 </style>
 </head><body>${rows}</body></html>`;
 }
@@ -142,13 +142,13 @@ export class DecorationManager {
     }
 
     const addedRanges: vscode.Range[] = [];
+    const tabSize = editor.options.tabSize as number || 4;
     const parsed = computeHunks(fileState.baseline, editor.document.getText());
 
     // Build the desired inset specs first
     interface InsetSpec {
       afterLine: number;
       height: number;
-      withScript: boolean;
       html: string;
     }
     const specs: InsetSpec[] = [];
@@ -226,15 +226,13 @@ export class DecorationManager {
         specs.push({
           afterLine: Math.max(-1, deletedAfterLine),
           height: hunk.removedContent.length,
-          withScript: false,
-          html: buildDeletedHtml(hunk.removedContent),
+          html: buildDeletedHtml(hunk.removedContent, tabSize),
         });
       }
 
       specs.push({
         afterLine: actionAfterLine,
         height: 2,
-        withScript: true,
         html: buildActionsHtml(filePath, id),
       });
     }
@@ -254,7 +252,7 @@ export class DecorationManager {
         existing[i] = undefined as any; // mark as consumed
       } else {
         // Position changed or inset was disposed by VSCode — recreate
-        const created = this.makeInset(editorKey, editor, spec.afterLine, spec.height, spec.withScript, spec.html, key);
+        const created = this.makeInset(editorKey, editor, spec.afterLine, spec.height, spec.html, key);
         if (created) nextInsets.push(created);
       }
     }
@@ -281,22 +279,19 @@ export class DecorationManager {
     editor: vscode.TextEditor,
     afterLine: number,
     height: number,
-    withScript: boolean,
     html: string,
     cacheKey: string,
   ): HunkInset | undefined {
     try {
       const inset = (vscode.window as any).createWebviewTextEditorInset(
-        editor, afterLine, height, { enableScripts: withScript }
+        editor, afterLine, height, { enableScripts: true }
       ) as vscode.WebviewEditorInset;
       inset.webview.html = html;
-      const disposable = withScript
-        ? inset.webview.onDidReceiveMessage((msg: { command: string; filePath: string; hunkId: string }) => {
-            if (msg.command === 'accept' || msg.command === 'discard') {
-              this.onAction?.(msg.command, msg.filePath, msg.hunkId);
-            }
-          })
-        : { dispose: () => {} };
+      const disposable = inset.webview.onDidReceiveMessage((msg: any) => {
+        if (msg.command === 'accept' || msg.command === 'discard') {
+          this.onAction?.(msg.command, msg.filePath, msg.hunkId);
+        }
+      });
       const entry: HunkInset = {
         inset, disposable, cacheKey, disposed: false,
         disposeListener: inset.onDidDispose(() => {

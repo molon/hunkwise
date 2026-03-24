@@ -2,6 +2,8 @@
 .claude/**
 src/**
 out-test/**
+out-integration/**
+.vscode-test/**
 docs/**
 skills/**
 node_modules/**

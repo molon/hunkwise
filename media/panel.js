@@ -3,7 +3,7 @@
 const vscode = /** @type {any} */ (globalThis).acquireVsCodeApi();
 const app = document.getElementById('app');
 
-/** @type {{ enabled: boolean, ignorePatterns: string[], respectGitignore: boolean, totalFiles: number, totalAdded: number, totalRemoved: number, files: any[] } | null} */
+/** @type {{ enabled: boolean, ignorePatterns: string[], respectGitignore: boolean, clearOnBranchSwitch: boolean, totalFiles: number, totalAdded: number, totalRemoved: number, files: any[] } | null} */
 let currentState = null;
 /** @type {Set<string>} */
 const expandedFiles = new Set();
@@ -53,9 +53,21 @@ const SPLASH_QUOTES = [
   "Your future self will thank you. Or blame you. It depends on the diff.",
 ];
 
+/** Cached quote so it doesn't change on every render */
+let cachedQuote = '';
+/** Timestamp of when the cached quote was set */
+let cachedQuoteTime = 0;
+/** Minimum interval (ms) before picking a new quote */
+const QUOTE_MIN_INTERVAL = 30000; // 30 seconds
+
 /** @returns {string} */
 function randomQuote() {
-  return SPLASH_QUOTES[Math.floor(Math.random() * SPLASH_QUOTES.length)];
+  const now = Date.now();
+  if (!cachedQuote || (now - cachedQuoteTime) >= QUOTE_MIN_INTERVAL) {
+    cachedQuote = SPLASH_QUOTES[Math.floor(Math.random() * SPLASH_QUOTES.length)];
+    cachedQuoteTime = now;
+  }
+  return cachedQuote;
 }
 
 /**
@@ -94,7 +106,7 @@ function appendIcon(parent) {
 }
 
 /**
- * @param {{ enabled: boolean, ignorePatterns: string[], respectGitignore: boolean, totalFiles: number, totalAdded: number, totalRemoved: number, files: any[] }} state
+ * @param {{ enabled: boolean, ignorePatterns: string[], respectGitignore: boolean, clearOnBranchSwitch: boolean, totalFiles: number, totalAdded: number, totalRemoved: number, files: any[] }} state
  */
 function render(state) {
   if (!app) return;
@@ -141,7 +153,7 @@ function renderIdleScreen() {
 }
 
 /**
- * @param {{ ignorePatterns: string[], respectGitignore: boolean }} state
+ * @param {{ ignorePatterns: string[], respectGitignore: boolean, clearOnBranchSwitch: boolean }} state
  */
 function renderSettingsScreen(state) {
   if (!app) return;
@@ -178,12 +190,31 @@ function renderSettingsScreen(state) {
   checkText.appendChild(checkDesc);
   checkRow.appendChild(checkText);
   gitignoreSection.appendChild(checkRow);
+
+  // Clear on branch switch
+  const branchRow = el('label', 'settings-check-row');
+  const branchCheckbox = /** @type {HTMLInputElement} */ (document.createElement('input'));
+  branchCheckbox.type = 'checkbox';
+  branchCheckbox.className = 'settings-checkbox';
+  branchCheckbox.checked = state.clearOnBranchSwitch;
+  branchCheckbox.addEventListener('change', () => {
+    vscode.postMessage({ command: 'setClearOnBranchSwitch', value: branchCheckbox.checked });
+  });
+  const branchLabel = el('span', 'settings-check-label', 'Clear hunks on branch switch');
+  const branchDesc = el('span', 'settings-check-desc', 'Automatically clear pending hunks when you switch branches');
+  const branchText = el('div', 'settings-check-text');
+  branchText.appendChild(branchLabel);
+  branchText.appendChild(branchDesc);
+  branchRow.appendChild(branchCheckbox);
+  branchRow.appendChild(branchText);
+  gitignoreSection.appendChild(branchRow);
+
   body.appendChild(gitignoreSection);
 
   // ── Exclude Patterns ──
   const patternSection = el('div', 'settings-section');
   patternSection.appendChild(el('div', 'settings-section-title', 'Exclude Patterns'));
-  patternSection.appendChild(el('p', 'settings-section-desc', 'Glob patterns to exclude from change tracking (relative to workspace root).'));
+  patternSection.appendChild(el('p', 'settings-section-desc', 'gitignore-style patterns to exclude from change tracking (relative to workspace root).'));
 
   const patternList = el('div', 'pattern-list');
 
@@ -330,6 +361,13 @@ function renderFileGroup(file) {
   const chevron = isSpecial ? el('span', 'file-chevron', '') : el('span', 'file-chevron', isExpanded ? '▼' : '▶');
   const fileIcon = fileIconBadge(file.fileName);
   const name = el('span', 'file-name', file.fileName);
+  if (!isSpecial) {
+    name.classList.add('file-name-link');
+    name.addEventListener('click', (e) => {
+      e.stopPropagation();
+      vscode.postMessage({ command: 'openFile', filePath: file.filePath });
+    });
+  }
   const badge = file.isNew ? el('span', 'file-status-badge file-status-new', 'new')
     : file.isDeleted ? el('span', 'file-status-badge file-status-deleted', 'deleted')
     : null;

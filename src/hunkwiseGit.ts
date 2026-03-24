@@ -8,11 +8,13 @@ const execFileAsync = promisify(execFile);
 interface Settings {
   ignorePatterns: string[];
   respectGitignore: boolean;
+  clearOnBranchSwitch: boolean;
 }
 
 const DEFAULT_SETTINGS: Settings = {
-  ignorePatterns: ['.git'],
+  ignorePatterns: process.platform === 'darwin' ? ['.git', '.DS_Store'] : ['.git'],
   respectGitignore: true,
+  clearOnBranchSwitch: false,
 };
 
 /**
@@ -58,6 +60,7 @@ export class HunkwiseGit {
     const { stdout } = await execFileAsync('git', args, {
       cwd: this.workTree,
       env: this.env,
+      maxBuffer: 10 * 1024 * 1024, // 10 MB — default 1 MB is too small for large files
     });
     return stdout;
   }
@@ -75,9 +78,10 @@ export class HunkwiseGit {
       return {
         ignorePatterns: parsed.ignorePatterns ?? [...DEFAULT_SETTINGS.ignorePatterns],
         respectGitignore: parsed.respectGitignore ?? DEFAULT_SETTINGS.respectGitignore,
+        clearOnBranchSwitch: parsed.clearOnBranchSwitch ?? DEFAULT_SETTINGS.clearOnBranchSwitch,
       };
     } catch {
-      return { ignorePatterns: [...DEFAULT_SETTINGS.ignorePatterns], respectGitignore: DEFAULT_SETTINGS.respectGitignore };
+      return { ...DEFAULT_SETTINGS, ignorePatterns: [...DEFAULT_SETTINGS.ignorePatterns] };
     }
   }
 
@@ -151,13 +155,34 @@ export class HunkwiseGit {
   }
 
   /**
+   * Rename a file's baseline entry in the git index and commit.
+   * Reuses the existing blob hash — no content re-hashing needed.
+   */
+  async renameFile(oldFilePath: string, newFilePath: string): Promise<void> {
+    await this.initGit();
+    const oldRel = path.relative(this.workTree, oldFilePath);
+    const newRel = path.relative(this.workTree, newFilePath);
+    try {
+      const lsOut = await this.git(['ls-files', '--stage', '--', oldRel]);
+      const match = lsOut.trim().match(/^(\d+) ([0-9a-f]+) \d+\t/);
+      if (!match) return; // not tracked — nothing to rename
+      const [, mode, hash] = match;
+      await this.git(['update-index', '--force-remove', '--', oldRel]);
+      await this.git(['update-index', '--add', '--cacheinfo', `${mode},${hash},${newRel}`]);
+      await this.commit();
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  /**
    * Remove a file's baseline from the git index and commit.
    */
   async removeFile(filePath: string): Promise<void> {
     await this.initGit();
     const rel = path.relative(this.workTree, filePath);
     try {
-      await this.git(['update-index', '--remove', '--', rel]);
+      await this.git(['update-index', '--force-remove', '--', rel]);
       await this.commit();
     } catch {
       // Non-fatal
@@ -172,7 +197,7 @@ export class HunkwiseGit {
     if (files.length === 0) return;
     await this.initGit();
     try {
-      // Hash all blobs in parallel, then stage and commit once
+      // Hash all blobs in parallel, then stage all at once and commit once
       const entries = await Promise.all(
         files.map(({ filePath, content }) =>
           new Promise<{ rel: string; hash: string }>((resolve, reject) => {
@@ -187,8 +212,31 @@ export class HunkwiseGit {
           })
         )
       );
-      for (const { rel, hash } of entries) {
-        await this.git(['update-index', '--add', '--cacheinfo', `100644,${hash},${rel}`]);
+      // Stage all entries, chunked to avoid OS argument length limits
+      const CHUNK = 100;
+      for (let i = 0; i < entries.length; i += CHUNK) {
+        const cacheArgs = entries.slice(i, i + CHUNK).flatMap(({ rel, hash }) => ['--add', '--cacheinfo', `100644,${hash},${rel}`]);
+        await this.git(['update-index', ...cacheArgs]);
+      }
+      await this.commit();
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  /**
+   * Remove multiple files from the git index in a single operation and commit once.
+   * Much faster than calling removeFile() per file.
+   */
+  async removeFileBatch(filePaths: string[]): Promise<void> {
+    if (filePaths.length === 0) return;
+    await this.initGit();
+    try {
+      const rels = filePaths.map(fp => path.relative(this.workTree, fp));
+      // Chunk to avoid exceeding OS argument length limits (~250KB on macOS)
+      const CHUNK = 200;
+      for (let i = 0; i < rels.length; i += CHUNK) {
+        await this.git(['update-index', '--force-remove', '--', ...rels.slice(i, i + CHUNK)]);
       }
       await this.commit();
     } catch {

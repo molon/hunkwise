@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import { StateManager } from './stateManager';
 import { FileWatcher } from './fileWatcher';
 import { computeHunks, hunkId } from './diffEngine';
+
 import {
   acceptAllFiles,
   discardAllFiles,
@@ -17,6 +18,7 @@ interface PanelState {
   enabled: boolean;
   ignorePatterns: string[];
   respectGitignore: boolean;
+  clearOnBranchSwitch: boolean;
   totalFiles: number;
   totalAdded: number;
   totalRemoved: number;
@@ -46,6 +48,8 @@ interface PanelHunk {
 export class ReviewPanel implements vscode.WebviewViewProvider {
   private view?: vscode.WebviewView;
   private _loading: boolean = false;
+
+  get loading(): boolean { return this._loading; }
 
   constructor(
     private context: vscode.ExtensionContext,
@@ -160,6 +164,7 @@ export class ReviewPanel implements vscode.WebviewViewProvider {
       enabled: this.stateManager.enabled,
       ignorePatterns: this.stateManager.ignorePatterns,
       respectGitignore: this.stateManager.respectGitignore,
+      clearOnBranchSwitch: this.stateManager.clearOnBranchSwitch,
       totalFiles: files.length,
       totalAdded,
       totalRemoved,
@@ -189,6 +194,11 @@ export class ReviewPanel implements vscode.WebviewViewProvider {
       case 'setRespectGitignore':
         if (msg.value !== undefined) {
           await vscode.commands.executeCommand('hunkwise.setRespectGitignore', msg.value);
+        }
+        break;
+      case 'setClearOnBranchSwitch':
+        if (msg.value !== undefined) {
+          this.stateManager.setClearOnBranchSwitch(msg.value);
         }
         break;
       case 'acceptAll':

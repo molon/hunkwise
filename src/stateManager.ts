@@ -3,8 +3,17 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { FileState } from './types';
 import { HunkwiseGit } from './hunkwiseGit';
+import { log } from './log';
 
-const DEFAULT_IGNORE_PATTERNS = ['.git'];
+const DEFAULT_IGNORE_PATTERNS = process.platform === 'darwin' ? ['.git', '.DS_Store'] : ['.git'];
+
+/** Format a list of absolute paths for logging: show relative paths, max 20. */
+function logFileList(files: string[], rootPath: string | undefined): string {
+  const rel = files.map(fp => rootPath ? path.relative(rootPath, fp) : fp);
+  const shown = rel.slice(0, 20);
+  const suffix = rel.length > 20 ? ` … and ${rel.length - 20} more` : '';
+  return shown.join(', ') + suffix;
+}
 
 export class StateManager {
   // In-memory cache — rebuilt from git on load(), updated synchronously on mutations
@@ -14,6 +23,7 @@ export class StateManager {
   private _enabled: boolean = false;
   private _ignorePatterns: string[] = [...DEFAULT_IGNORE_PATTERNS];
   private _respectGitignore: boolean = true;
+  private _clearOnBranchSwitch: boolean = false;
   private _git: HunkwiseGit | undefined;
 
   // Serial queue: git ops run one at a time; flush() awaits the tail
@@ -32,6 +42,7 @@ export class StateManager {
   get enabled(): boolean { return this._enabled; }
   get ignorePatterns(): string[] { return this._ignorePatterns; }
   get respectGitignore(): boolean { return this._respectGitignore; }
+  get clearOnBranchSwitch(): boolean { return this._clearOnBranchSwitch; }
   get dir(): string | undefined { return this.hunkwiseDir; }
   get git(): HunkwiseGit | undefined { return this._git; }
 
@@ -50,7 +61,7 @@ export class StateManager {
    * Must be called once at activation. Async because reading baselines
    * from git requires exec calls.
    */
-  async load(): Promise<void> {
+  async load(shouldIgnore?: (filePath: string, isDirectory?: boolean) => boolean): Promise<void> {
     const g = this.ensureGit();
     if (!g) return;
 
@@ -62,16 +73,50 @@ export class StateManager {
     const settings = g.loadSettings();
     this._ignorePatterns = settings.ignorePatterns;
     this._respectGitignore = settings.respectGitignore;
+    this._clearOnBranchSwitch = settings.clearOnBranchSwitch;
 
     // Initialize git (idempotent) then restore in-memory state from HEAD
     await g.initGit();
     const tracked = await g.listTrackedFiles();
+    const ignored: string[] = [];
+    const skippedNoBaseline: string[] = [];
+    const reviewing: string[] = [];
+    const idle: string[] = [];
     await Promise.all(tracked.map(async filePath => {
+      if (shouldIgnore?.(filePath)) {
+        ignored.push(filePath);
+        return;
+      }
       const baseline = await g.getBaseline(filePath);
-      if (baseline !== undefined) {
+      if (baseline === undefined) {
+        skippedNoBaseline.push(filePath);
+        return;
+      }
+      // Compare baseline with current disk content — only enter reviewing if there's a real diff
+      let diskContent: string | undefined;
+      try { diskContent = await fs.promises.readFile(filePath, 'utf-8'); } catch { /* file deleted or unreadable */ }
+      if (diskContent !== undefined && diskContent !== baseline) {
         this.state.set(filePath, { status: 'reviewing', baseline });
+        reviewing.push(filePath);
+      } else {
+        // No diff (or file deleted) — baseline is stored in git, no need to set reviewing
+        idle.push(filePath);
       }
     }));
+    if (skippedNoBaseline.length > 0) {
+      log(`load: skipped ${skippedNoBaseline.length} file(s) with no baseline in index: ${logFileList(skippedNoBaseline, this.workspaceRoot)}`);
+    }
+    if (reviewing.length > 0) {
+      log(`load: ${reviewing.length} file(s) have diffs: ${logFileList(reviewing, this.workspaceRoot)}`);
+    }
+    if (idle.length > 0) {
+      log(`load: ${idle.length} file(s) unchanged, baseline preserved`);
+    }
+    // Clean up stale ignored entries from the git repo
+    if (ignored.length > 0) {
+      log(`load: removing ${ignored.length} ignored file(s) from git: ${logFileList(ignored, this.workspaceRoot)}`);
+      this.gitQueue = this.gitQueue.then(() => g.removeFileBatch(ignored)).catch(() => {});
+    }
   }
 
   // ── file state ────────────────────────────────────────────────────────────
@@ -80,9 +125,9 @@ export class StateManager {
     return this.state.get(filePath);
   }
 
-  setFile(filePath: string, state: FileState): void {
+  setFile(filePath: string, state: FileState, skipSnapshot?: boolean): void {
     this.state.set(filePath, state);
-    if (this._git) {
+    if (!skipSnapshot && this._git) {
       const g = this._git;
       const baseline = state.baseline;
       this.gitQueue = this.gitQueue.then(() => g.snapshot(filePath, baseline)).catch(() => {});
@@ -97,6 +142,29 @@ export class StateManager {
     }
   }
 
+  renameFile(oldFilePath: string, newFilePath: string): void {
+    const fileState = this.state.get(oldFilePath);
+    this.state.delete(oldFilePath);
+    if (fileState) {
+      this.state.set(newFilePath, fileState);
+    }
+    if (this._git) {
+      const g = this._git;
+      this.gitQueue = this.gitQueue.then(() => g.renameFile(oldFilePath, newFilePath)).catch(() => {});
+    }
+  }
+
+  /**
+   * Snapshot a file's content as baseline via the git queue (serialized).
+   * Use this instead of calling git.snapshot() directly to avoid concurrent git ops.
+   */
+  snapshotFile(filePath: string, content: string): void {
+    if (this._git) {
+      const g = this._git;
+      this.gitQueue = this.gitQueue.then(() => g.snapshot(filePath, content)).catch(() => {});
+    }
+  }
+
   getAllFiles(): ReadonlyMap<string, FileState> {
     return this.state;
   }
@@ -105,18 +173,18 @@ export class StateManager {
     return this.state.get(filePath)?.status === 'reviewing';
   }
 
-  clearAllFiles(): void {
-    const paths = Array.from(this.state.keys());
-    this.state.clear();
-    if (this._git) {
-      const g = this._git;
-      this.gitQueue = this.gitQueue.then(async () => {
-        for (const fp of paths) {
-          await g.removeFile(fp);
-        }
-      }).catch(() => {});
+  /**
+   * Exit reviewing state without removing the file from git.
+   * If newBaseline is provided, update the baseline in git (e.g. after accept).
+   * If omitted, the existing baseline is already correct (e.g. hunks resolved to 0, or discard).
+   */
+  exitReviewing(filePath: string, newBaseline?: string): void {
+    this.state.delete(filePath);
+    if (newBaseline !== undefined) {
+      this.snapshotFile(filePath, newBaseline);
     }
   }
+
 
   // ── settings ──────────────────────────────────────────────────────────────
 
@@ -126,9 +194,10 @@ export class StateManager {
       const g = this.ensureGit();
       if (!g) return;
       await g.initGit();
-      const merged = g.mergeDefaultSettings({ ignorePatterns: this._ignorePatterns, respectGitignore: this._respectGitignore });
+      const merged = g.mergeDefaultSettings({ ignorePatterns: this._ignorePatterns, respectGitignore: this._respectGitignore, clearOnBranchSwitch: this._clearOnBranchSwitch });
       this._ignorePatterns = merged.ignorePatterns;
       this._respectGitignore = merged.respectGitignore;
+      this._clearOnBranchSwitch = merged.clearOnBranchSwitch;
     } else {
       this.state.clear();
       this._git?.destroyGit();
@@ -141,7 +210,7 @@ export class StateManager {
    * Only snapshots files that don't already have a baseline recorded.
    * Should be called once after enable.
    */
-  async snapshotWorkspace(shouldIgnore: (filePath: string) => boolean): Promise<void> {
+  async snapshotWorkspace(shouldIgnore: (filePath: string, isDirectory?: boolean) => boolean): Promise<void> {
     const g = this._git;
     if (!g || !this.workspaceRoot) return;
 
@@ -155,8 +224,9 @@ export class StateManager {
       }
       for (const entry of entries) {
         const full = path.join(dir, entry.name);
-        if (shouldIgnore(full)) continue;
-        if (entry.isDirectory()) {
+        const isDir = entry.isDirectory();
+        if (shouldIgnore(full, isDir)) continue;
+        if (isDir) {
           results = results.concat(await collect(full));
         } else if (entry.isFile()) {
           results.push(full);
@@ -183,14 +253,21 @@ export class StateManager {
   setIgnorePatterns(patterns: string[]): void {
     this._ignorePatterns = patterns;
     if (this._enabled && this._git) {
-      this._git.saveSettings({ ignorePatterns: patterns, respectGitignore: this._respectGitignore });
+      this._git.saveSettings({ ignorePatterns: patterns, respectGitignore: this._respectGitignore, clearOnBranchSwitch: this._clearOnBranchSwitch });
     }
   }
 
   setRespectGitignore(value: boolean): void {
     this._respectGitignore = value;
     if (this._enabled && this._git) {
-      this._git.saveSettings({ ignorePatterns: this._ignorePatterns, respectGitignore: value });
+      this._git.saveSettings({ ignorePatterns: this._ignorePatterns, respectGitignore: value, clearOnBranchSwitch: this._clearOnBranchSwitch });
+    }
+  }
+
+  setClearOnBranchSwitch(value: boolean): void {
+    this._clearOnBranchSwitch = value;
+    if (this._enabled && this._git) {
+      this._git.saveSettings({ ignorePatterns: this._ignorePatterns, respectGitignore: this._respectGitignore, clearOnBranchSwitch: value });
     }
   }
 
@@ -203,15 +280,17 @@ export class StateManager {
     const settings = this._git.loadSettings();
     this._ignorePatterns = settings.ignorePatterns;
     this._respectGitignore = settings.respectGitignore;
+    this._clearOnBranchSwitch = settings.clearOnBranchSwitch;
     return this._ignorePatterns;
   }
 
   /**
-   * Snapshot files newly allowed by current ignore rules but not yet tracked.
-   * Never removes existing baselines — removing tracked files mid-session is unsafe.
+   * Sync tracked files with current ignore rules.
+   * - Removes baselines for files that are now ignored.
+   * - Snapshots files newly allowed by current rules but not yet tracked.
    * Called after ignorePatterns / respectGitignore / .gitignore changes.
    */
-  async syncIgnoreState(shouldIgnore: (filePath: string) => boolean): Promise<void> {
+  async syncIgnoreState(shouldIgnore: (filePath: string, isDirectory?: boolean) => boolean): Promise<void> {
     const g = this._git;
     if (!g || !this.workspaceRoot) return;
 
@@ -225,8 +304,9 @@ export class StateManager {
       }
       for (const entry of entries) {
         const full = path.join(dir, entry.name);
-        if (shouldIgnore(full)) continue;
-        if (entry.isDirectory()) {
+        const isDir = entry.isDirectory();
+        if (shouldIgnore(full, isDir)) continue;
+        if (isDir) {
           results = results.concat(await collect(full));
         } else if (entry.isFile()) {
           results.push(full);
@@ -240,20 +320,125 @@ export class StateManager {
       g.listTrackedFiles(),
     ]);
 
-    const trackedSet = new Set(trackedFiles);
-    const toAdd = allowedFiles.filter(fp => !trackedSet.has(fp));
-    if (toAdd.length === 0) return;
+    // Remove tracked files that are now ignored (from git and from in-memory state)
+    const allowedSet = new Set(allowedFiles);
+    const toRemove = trackedFiles.filter(fp => !allowedSet.has(fp));
+    // Also remove in-memory state entries that are ignored but have no git baseline (e.g. new files in reviewing)
+    for (const fp of this.state.keys()) {
+      if (!allowedSet.has(fp) && !toRemove.includes(fp)) {
+        this.state.delete(fp);
+      }
+    }
+    if (toRemove.length > 0) {
+      log(`syncIgnoreState: removing ${toRemove.length} file(s): ${logFileList(toRemove, this.workspaceRoot)}`);
+    }
+    for (const fp of toRemove) {
+      this.state.delete(fp);
+    }
+    if (toRemove.length > 0) {
+      this.gitQueue = this.gitQueue.then(() => g.removeFileBatch(toRemove)).catch(() => {});
+    }
 
+    // Add newly allowed files not yet tracked (check both git HEAD and in-memory state
+    // to avoid re-adding files that were loaded from index but not yet committed to HEAD).
+    //
+    // These files are silently snapshotted with their current content as baseline,
+    // rather than treated as "new" (baseline='') which would produce hunks. This is
+    // intentional to avoid flooding the user with false positives when:
+    // - ignore rules changed and previously-ignored files are now un-ignored
+    // - a large number of files become visible at once
+    // Genuine new files created while hunkwise is running are caught by
+    // FileWatcher.onDidCreate, not this path. This is intentionally consistent
+    // with the onDiskChange fallback which also silently adopts content.
+    const trackedSet = new Set(trackedFiles);
+    for (const fp of this.state.keys()) trackedSet.add(fp);
+    const toAdd = allowedFiles.filter(fp => !trackedSet.has(fp));
+    if (toAdd.length > 0) {
+      log(`syncIgnoreState: adding ${toAdd.length} file(s): ${logFileList(toAdd, this.workspaceRoot)}`);
+    }
+    if (toAdd.length > 0) {
+      const batch: { filePath: string; content: string }[] = [];
+      await Promise.all(toAdd.map(async fp => {
+        try {
+          const content = await fs.promises.readFile(fp, 'utf-8');
+          batch.push({ filePath: fp, content });
+        } catch { /* skip unreadable */ }
+      }));
+      if (batch.length > 0) {
+        this.gitQueue = this.gitQueue.then(() => g.snapshotBatch(batch)).catch(() => {});
+      }
+    }
+
+    // Wait for all queued git operations to complete
+    await this.gitQueue;
+  }
+
+  /**
+   * Called on branch switch when clearOnBranchSwitch is enabled.
+   * Clears all reviewing state, re-snapshots every tracked file to the current
+   * disk content, and removes baselines for files that no longer exist.
+   * This must be called while FileWatcher events are suppressed so that
+   * git-checkout-induced file changes don't race with the clear.
+   */
+  async clearHunksOnBranchSwitch(shouldIgnore?: (filePath: string, isDirectory?: boolean) => boolean): Promise<void> {
+    const g = this._git;
+    if (!g || !this.workspaceRoot) return;
+
+    const reviewingCount = Array.from(this.state.values()).filter(s => s.status === 'reviewing').length;
+    log(`clearHunksOnBranchSwitch: clearing ${reviewingCount} reviewing file(s), re-syncing all baselines`);
+
+    // Clear all in-memory state — fresh start
+    this.state.clear();
+
+    // Collect all current workspace files (respecting ignore rules)
+    const collect = async (dir: string): Promise<string[]> => {
+      let results: string[] = [];
+      let entries: fs.Dirent[];
+      try {
+        entries = await fs.promises.readdir(dir, { withFileTypes: true });
+      } catch {
+        return results;
+      }
+      for (const entry of entries) {
+        const full = path.join(dir, entry.name);
+        const isDir = entry.isDirectory();
+        if (shouldIgnore?.(full, isDir)) continue;
+        if (isDir) {
+          results = results.concat(await collect(full));
+        } else if (entry.isFile()) {
+          results.push(full);
+        }
+      }
+      return results;
+    };
+
+    const [diskFiles, trackedFiles] = await Promise.all([
+      collect(this.workspaceRoot),
+      g.listTrackedFiles(),
+    ]);
+
+    // Snapshot all disk files as new baselines
+    const diskSet = new Set(diskFiles);
     const batch: { filePath: string; content: string }[] = [];
-    await Promise.all(toAdd.map(async fp => {
+    await Promise.all(diskFiles.map(async fp => {
       try {
         const content = await fs.promises.readFile(fp, 'utf-8');
-        batch.push({ filePath: fp, content });
+        if (content.length > 0) batch.push({ filePath: fp, content });
       } catch { /* skip unreadable */ }
     }));
+
+    // Remove baselines for files that no longer exist on disk
+    const toRemove = trackedFiles.filter(fp => !diskSet.has(fp));
+
+    if (toRemove.length > 0) {
+      this.gitQueue = this.gitQueue.then(() => g.removeFileBatch(toRemove)).catch(() => {});
+    }
     if (batch.length > 0) {
       this.gitQueue = this.gitQueue.then(() => g.snapshotBatch(batch)).catch(() => {});
     }
+
+    // Wait for all git ops to complete before returning
+    await this.gitQueue;
   }
 
   /**
