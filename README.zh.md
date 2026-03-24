@@ -22,17 +22,9 @@
 
 hunkwise 使用了 [VSCode 提案 API](https://code.visualstudio.com/api/advanced-topics/using-proposed-api)（`editorInsets`），无法从应用商店安装。
 
-### 通过 Claude Code 安装（推荐）
+直接告诉你的 AI 工具：
 
-安装 `install-hunkwise` skill，它会自动完成编译、打包和 VSCode 配置：
-
-```bash
-npx skills add https://github.com/molon/hunkwise --skill install-hunkwise -g -y
-```
-
-然后让 Claude Code 执行安装：
-
-> /install-hunkwise
+> Run this skill: <https://github.com/molon/hunkwise/blob/main/skills/install-hunkwise/SKILL.md>
 
 ## 使用方法
 

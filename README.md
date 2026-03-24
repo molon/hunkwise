@@ -2,7 +2,7 @@
 
 Per-hunk Accept/Discard for any file change in VSCode.
 
-AI coding tools like [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [OpenCode](https://github.com/opencode-ai/opencode), and other CLI/plugin-based assistants lack a native IDE — unlike Cursor, Windsurf, or Copilot, they have no built-in way to review changes hunk by hunk. 
+AI coding tools like [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [OpenCode](https://github.com/opencode-ai/opencode), and other CLI/plugin-based assistants lack a native IDE — unlike Cursor, Windsurf, or Copilot, they have no built-in way to review changes hunk by hunk.
 
 **hunkwise** fills that gap by bringing per-hunk review controls directly into VSCode for any external file change.
 
@@ -22,13 +22,9 @@ AI coding tools like [Claude Code](https://docs.anthropic.com/en/docs/claude-cod
 
 hunkwise uses a [proposed VSCode API](https://code.visualstudio.com/api/advanced-topics/using-proposed-api) (`editorInsets`) and cannot be installed from the marketplace.
 
-Install the `install-hunkwise` skill, which handles compiling, packaging, and configuring VSCode automatically:
+Just tell your AI tool:
 
-```bash
-npx skills add https://github.com/molon/hunkwise --skill install-hunkwise -g -y
-```
-
-Then invoke `/install-hunkwise` to install it.
+> Run this skill: <https://github.com/molon/hunkwise/blob/main/skills/install-hunkwise/SKILL.md>
 
 ## Usage
 
