@@ -408,6 +408,10 @@ body {
   text-overflow: ellipsis;
   max-width: 55%;
 }
+.file-name-link:hover {
+  text-decoration: underline;
+  color: var(--vscode-textLink-foreground);
+}
 
 .file-dir {
   font-size: 11px;

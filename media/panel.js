@@ -361,6 +361,13 @@ function renderFileGroup(file) {
   const chevron = isSpecial ? el('span', 'file-chevron', '') : el('span', 'file-chevron', isExpanded ? '▼' : '▶');
   const fileIcon = fileIconBadge(file.fileName);
   const name = el('span', 'file-name', file.fileName);
+  if (!isSpecial) {
+    name.classList.add('file-name-link');
+    name.addEventListener('click', (e) => {
+      e.stopPropagation();
+      vscode.postMessage({ command: 'openFile', filePath: file.filePath });
+    });
+  }
   const badge = file.isNew ? el('span', 'file-status-badge file-status-new', 'new')
     : file.isDeleted ? el('span', 'file-status-badge file-status-deleted', 'deleted')
     : null;
