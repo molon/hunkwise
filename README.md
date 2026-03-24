@@ -2,6 +2,8 @@
 
 Per-hunk Accept/Discard for any file change in VSCode.
 
+![snapshot](media/snapshot.png)
+
 ## Features
 
 - Tracks file changes from any source (AI tools, scripts, manual edits)
@@ -16,17 +18,13 @@ Per-hunk Accept/Discard for any file change in VSCode.
 
 hunkwise uses a [proposed VSCode API](https://code.visualstudio.com/api/advanced-topics/using-proposed-api) (`editorInsets`) and cannot be installed from the marketplace.
 
-### With Claude Code (recommended)
-
 Install the `install-hunkwise` skill, which handles compiling, packaging, and configuring VSCode automatically:
 
 ```bash
 npx skills add https://github.com/molon/hunkwise --skill install-hunkwise -g -y
 ```
 
-Then ask Claude Code to install it:
-
-> /install-hunkwise
+Then invoke `/install-hunkwise` to install it.
 
 ## Usage
 
