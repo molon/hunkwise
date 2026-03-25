@@ -137,7 +137,12 @@ export class HunkwiseGit {
     if (!fs.existsSync(this.gitDir) || !fs.existsSync(headPath)) {
       if (fs.existsSync(this.gitDir)) {
         this.log('initGit: corrupted git dir detected (HEAD missing), re-initializing');
-        fs.rmSync(this.gitDir, { recursive: true, force: true });
+        try {
+          fs.rmSync(this.gitDir, { recursive: true, force: true });
+        } catch (err) {
+          this.log(`initGit: failed to remove corrupted git dir: ${err}`);
+          throw err;
+        }
       }
       if (this.destroyed) return;
       fs.mkdirSync(this.gitDir, { recursive: true });
