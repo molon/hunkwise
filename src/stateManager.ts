@@ -53,7 +53,7 @@ export class StateManager {
   private ensureGit(): HunkwiseGit | undefined {
     if (!this.hunkwiseDir || !this.workspaceRoot) return undefined;
     if (!this._git) {
-      this._git = new HunkwiseGit(this.hunkwiseDir, this.workspaceRoot);
+      this._git = new HunkwiseGit(this.hunkwiseDir, this.workspaceRoot, log);
     }
     return this._git;
   }
@@ -118,7 +118,7 @@ export class StateManager {
     // Clean up stale ignored entries from the git repo
     if (ignored.length > 0) {
       log(`load: removing ${ignored.length} ignored file(s) from git: ${logFileList(ignored, this.workspaceRoot)}`);
-      this.gitQueue = this.gitQueue.then(() => g.removeFileBatch(ignored)).catch(() => {});
+      this.gitQueue = this.gitQueue.then(() => g.removeFileBatch(ignored)).catch(err => { log(`git queue error: ${err}`); });
     }
   }
 
@@ -133,7 +133,7 @@ export class StateManager {
     if (!skipSnapshot && this._git) {
       const g = this._git;
       const baseline = state.baseline;
-      this.gitQueue = this.gitQueue.then(() => g.snapshot(filePath, baseline)).catch(() => {});
+      this.gitQueue = this.gitQueue.then(() => g.snapshot(filePath, baseline)).catch(err => { log(`git queue error: ${err}`); });
     }
   }
 
@@ -141,7 +141,7 @@ export class StateManager {
     this.state.delete(filePath);
     if (this._git) {
       const g = this._git;
-      this.gitQueue = this.gitQueue.then(() => g.removeFile(filePath)).catch(() => {});
+      this.gitQueue = this.gitQueue.then(() => g.removeFile(filePath)).catch(err => { log(`git queue error: ${err}`); });
     }
   }
 
@@ -153,7 +153,7 @@ export class StateManager {
     }
     if (this._git) {
       const g = this._git;
-      this.gitQueue = this.gitQueue.then(() => g.renameFile(oldFilePath, newFilePath)).catch(() => {});
+      this.gitQueue = this.gitQueue.then(() => g.renameFile(oldFilePath, newFilePath)).catch(err => { log(`git queue error: ${err}`); });
     }
   }
 
@@ -164,7 +164,7 @@ export class StateManager {
   snapshotFile(filePath: string, content: string): void {
     if (this._git) {
       const g = this._git;
-      this.gitQueue = this.gitQueue.then(() => g.snapshot(filePath, content)).catch(() => {});
+      this.gitQueue = this.gitQueue.then(() => g.snapshot(filePath, content)).catch(err => { log(`git queue error: ${err}`); });
     }
   }
 
@@ -349,7 +349,7 @@ export class StateManager {
       this.state.delete(fp);
     }
     if (toRemove.length > 0) {
-      this.gitQueue = this.gitQueue.then(() => g.removeFileBatch(toRemove)).catch(() => {});
+      this.gitQueue = this.gitQueue.then(() => g.removeFileBatch(toRemove)).catch(err => { log(`git queue error: ${err}`); });
     }
 
     // Add newly allowed files not yet tracked (check both git HEAD and in-memory state
@@ -378,7 +378,7 @@ export class StateManager {
         } catch { /* skip unreadable */ }
       }));
       if (batch.length > 0) {
-        this.gitQueue = this.gitQueue.then(() => g.snapshotBatch(batch)).catch(() => {});
+        this.gitQueue = this.gitQueue.then(() => g.snapshotBatch(batch)).catch(err => { log(`git queue error: ${err}`); });
       }
     }
 
@@ -444,10 +444,10 @@ export class StateManager {
     const toRemove = trackedFiles.filter(fp => !diskSet.has(fp));
 
     if (toRemove.length > 0) {
-      this.gitQueue = this.gitQueue.then(() => g.removeFileBatch(toRemove)).catch(() => {});
+      this.gitQueue = this.gitQueue.then(() => g.removeFileBatch(toRemove)).catch(err => { log(`git queue error: ${err}`); });
     }
     if (batch.length > 0) {
-      this.gitQueue = this.gitQueue.then(() => g.snapshotBatch(batch)).catch(() => {});
+      this.gitQueue = this.gitQueue.then(() => g.snapshotBatch(batch)).catch(err => { log(`git queue error: ${err}`); });
     }
 
     // Wait for all git ops to complete before returning

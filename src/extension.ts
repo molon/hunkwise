@@ -118,7 +118,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
             syncIgnore();
           }
         });
-      } catch { /* dir may not exist */ }
+      } catch (err) { log(`settings watch failed: ${err}`); }
     };
 
     // Poll for git dir existence — detect external deletion
@@ -186,13 +186,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
               ).then(() => {
                 fileWatcher.resumeAll();
                 onStateChanged();
-              }).catch(() => {
+              }).catch((err) => {
+                log(`clearHunksOnBranchSwitch error: ${err}`);
                 fileWatcher.resumeAll();
                 onStateChanged();
               });
             }
           });
-        } catch { /* .git/HEAD may not exist in some workspaces */ }
+        } catch (err) { log(`HEAD watch failed: ${err}`); }
       };
       startHeadWatch();
       context.subscriptions.push({ dispose: () => headWatcher?.close() });

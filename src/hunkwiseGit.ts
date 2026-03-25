@@ -40,11 +40,15 @@ export class HunkwiseGit {
   private gitDir: string;
   private workTree: string;
   private gitInitialized = false;
+  private destroyed = false;
+  private initPromise: Promise<void> | undefined;
+  private log: (message: string) => void;
 
-  constructor(hunkwiseDir: string, workspaceRoot: string) {
+  constructor(hunkwiseDir: string, workspaceRoot: string, logger?: (message: string) => void) {
     this.hunkwiseDir = hunkwiseDir;
     this.gitDir = path.join(hunkwiseDir, 'git');
     this.workTree = workspaceRoot;
+    this.log = logger ?? ((msg: string) => console.warn(`[hunkwise] ${msg}`));
   }
 
   // ── env / low-level git ───────────────────────────────────────────────────
@@ -94,8 +98,8 @@ export class HunkwiseGit {
     try {
       fs.mkdirSync(this.hunkwiseDir, { recursive: true });
       fs.writeFileSync(this.settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
-    } catch {
-      // Non-fatal
+    } catch (err) {
+      this.log(`saveSettings failed: ${err}`);
     }
   }
 
@@ -114,13 +118,41 @@ export class HunkwiseGit {
   // ── git init ──────────────────────────────────────────────────────────────
 
   async initGit(): Promise<void> {
-    if (this.gitInitialized) return;
-    if (!fs.existsSync(this.gitDir)) {
+    if (this.destroyed || this.gitInitialized) return;
+    // Serialize concurrent calls — only one init runs at a time
+    if (this.initPromise) return this.initPromise;
+    this.initPromise = this.doInitGit();
+    try {
+      await this.initPromise;
+    } finally {
+      this.initPromise = undefined;
+    }
+  }
+
+  private async doInitGit(): Promise<void> {
+    // Check for a valid git repo: HEAD file must exist. If the directory
+    // exists but HEAD is missing, the repo is corrupted (e.g. interrupted
+    // init). Re-initialize from scratch in that case.
+    const headPath = path.join(this.gitDir, 'HEAD');
+    if (!fs.existsSync(this.gitDir) || !fs.existsSync(headPath)) {
+      if (fs.existsSync(this.gitDir)) {
+        this.log('initGit: corrupted git dir detected (HEAD missing), re-initializing');
+        try {
+          fs.rmSync(this.gitDir, { recursive: true, force: true });
+        } catch (err) {
+          this.log(`initGit: failed to remove corrupted git dir: ${err}`);
+          throw err;
+        }
+      }
+      if (this.destroyed) return;
       fs.mkdirSync(this.gitDir, { recursive: true });
       await this.git(['init']);
+      if (this.destroyed) return;
       await this.git(['config', 'user.email', 'hunkwise@localhost']);
+      if (this.destroyed) return;
       await this.git(['config', 'user.name', 'hunkwise']);
     }
+    if (this.destroyed) return;
     this.gitInitialized = true;
   }
 
@@ -129,6 +161,7 @@ export class HunkwiseGit {
       await this.git(['rev-parse', 'HEAD']);
       return true;
     } catch {
+      // Expected when repo has no commits yet
       return false;
     }
   }
@@ -154,8 +187,8 @@ export class HunkwiseGit {
       });
       await this.git(['update-index', '--add', '--cacheinfo', `100644,${hash},${rel}`]);
       await this.commit();
-    } catch {
-      // Non-fatal
+    } catch (err) {
+      this.log(`snapshot failed for ${rel}: ${err}`);
     }
   }
 
@@ -175,8 +208,8 @@ export class HunkwiseGit {
       await this.git(['update-index', '--force-remove', '--', oldRel]);
       await this.git(['update-index', '--add', '--cacheinfo', `${mode},${hash},${newRel}`]);
       await this.commit();
-    } catch {
-      // Non-fatal
+    } catch (err) {
+      this.log(`renameFile failed (${path.relative(this.workTree, oldFilePath)} → ${path.relative(this.workTree, newFilePath)}): ${err}`);
     }
   }
 
@@ -189,8 +222,8 @@ export class HunkwiseGit {
     try {
       await this.git(['update-index', '--force-remove', '--', rel]);
       await this.commit();
-    } catch {
-      // Non-fatal
+    } catch (err) {
+      this.log(`removeFile failed for ${rel}: ${err}`);
     }
   }
 
@@ -224,8 +257,8 @@ export class HunkwiseGit {
         await this.git(['update-index', ...cacheArgs]);
       }
       await this.commit();
-    } catch {
-      // Non-fatal
+    } catch (err) {
+      this.log(`snapshotBatch failed (${files.length} files): ${err}`);
     }
   }
 
@@ -244,8 +277,8 @@ export class HunkwiseGit {
         await this.git(['update-index', '--force-remove', '--', ...rels.slice(i, i + CHUNK)]);
       }
       await this.commit();
-    } catch {
-      // Non-fatal
+    } catch (err) {
+      this.log(`removeFileBatch failed (${filePaths.length} files): ${err}`);
     }
   }
 
@@ -293,11 +326,12 @@ export class HunkwiseGit {
   /** Remove only the git directory (called on disable). settings.json is preserved. */
   destroyGit(): void {
     this.gitInitialized = false;
+    this.destroyed = true;
     if (fs.existsSync(this.gitDir)) {
       try {
         fs.rmSync(this.gitDir, { recursive: true, force: true });
-      } catch {
-        // ignore
+      } catch (err) {
+        this.log(`destroyGit failed: ${err}`);
       }
     }
   }
