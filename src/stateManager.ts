@@ -24,7 +24,7 @@ export class StateManager {
   private _ignorePatterns: string[] = [...DEFAULT_IGNORE_PATTERNS];
   private _respectGitignore: boolean = true;
   private _clearOnBranchSwitch: boolean = false;
-  private _quoteRotationInterval: number = 60;
+  private _quoteRotationInterval: number = 30;
   private _git: HunkwiseGit | undefined;
 
   // Serial queue: git ops run one at a time; flush() awaits the tail

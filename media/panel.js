@@ -53,24 +53,36 @@ const SPLASH_QUOTES = [
   "Your future self will thank you. Or blame you. It depends on the diff.",
 ];
 
-/** Interval handle for idle screen text cycling */
+/** Interval handle for idle screen text cycling (outer timer) */
 /** @type {ReturnType<typeof setTimeout> | null} */
 let idleCycleTimer = null;
+/** Inner fade-completion timer handle */
+/** @type {ReturnType<typeof setTimeout> | null} */
+let idleFadeTimer = null;
 /** Last quote index, to avoid immediate repeat */
 let lastQuoteIndex = -1;
+/** Current displayed quote — persists across re-renders so refresh doesn't reset it */
+let currentQuote = '';
 
-/** @returns {string} */
+/** Pick a new random quote (different from last) and store it */
 function pickNewQuote() {
   let idx;
   do { idx = Math.floor(Math.random() * SPLASH_QUOTES.length); } while (idx === lastQuoteIndex);
   lastQuoteIndex = idx;
-  return SPLASH_QUOTES[idx];
+  currentQuote = SPLASH_QUOTES[idx];
+  return currentQuote;
 }
 
+/** Return the current quote, picking one if none has been chosen yet */
 /** @returns {string} */
-function randomQuote() {
-  if (lastQuoteIndex === -1) pickNewQuote();
-  return SPLASH_QUOTES[lastQuoteIndex];
+function getOrPickQuote() {
+  if (!currentQuote) pickNewQuote();
+  return currentQuote;
+}
+
+function clearIdleTimers() {
+  if (idleCycleTimer !== null) { clearTimeout(idleCycleTimer); idleCycleTimer = null; }
+  if (idleFadeTimer !== null) { clearTimeout(idleFadeTimer); idleFadeTimer = null; }
 }
 
 /**
@@ -113,6 +125,7 @@ function appendIcon(parent) {
  */
 function render(state) {
   if (!app) return;
+  clearIdleTimers();
   app.innerHTML = '';
 
   if (!state.enabled) {
@@ -137,7 +150,7 @@ function renderSetupScreen() {
   if (!app) return;
   const screen = el('div', 'splash-screen');
   appendIcon(screen);
-  screen.appendChild(el('p', 'splash-tagline', randomQuote()));
+  screen.appendChild(el('p', 'splash-tagline', getOrPickQuote()));
   screen.appendChild(btn('Enable for this project', 'btn-primary', () => {
     vscode.postMessage({ command: 'enable' });
   }));
@@ -156,23 +169,24 @@ function renderIdleScreen(quoteRotationInterval) {
 
   const textBox = el('div', 'splash-textbox');
   const cycleEl = el('p', 'splash-tagline splash-cycle');
-  cycleEl.textContent = pickNewQuote();
+  cycleEl.textContent = getOrPickQuote();
   textBox.appendChild(cycleEl);
   screen.appendChild(textBox);
 
   app.appendChild(screen);
 
-  // Clear any previous cycle timer
-  if (idleCycleTimer !== null) { clearTimeout(idleCycleTimer); idleCycleTimer = null; }
+  // Clear any previous cycle timers (outer + inner)
+  clearIdleTimers();
 
   if (quoteRotationInterval > 0) {
     const intervalMs = quoteRotationInterval * 60 * 1000;
     function scheduleNext() {
       idleCycleTimer = setTimeout(() => {
         cycleEl.classList.add('splash-cycle-fade');
-        setTimeout(() => {
+        idleFadeTimer = setTimeout(() => {
           cycleEl.textContent = pickNewQuote();
           cycleEl.classList.remove('splash-cycle-fade');
+          idleFadeTimer = null;
           scheduleNext();
         }, IDLE_CYCLE_FADE);
       }, intervalMs);

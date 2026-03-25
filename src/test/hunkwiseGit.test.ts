@@ -315,7 +315,7 @@ describe('HunkwiseGit', () => {
       );
       const g2 = new HunkwiseGit(path.join(dir2, '.vscode', 'hunkwise'), dir2);
       const s = g2.loadSettings();
-      assert.equal(s.quoteRotationInterval, 60);
+      assert.equal(s.quoteRotationInterval, 30);
       fs.rmSync(dir2, { recursive: true, force: true });
     });
 
@@ -329,12 +329,12 @@ describe('HunkwiseGit', () => {
         JSON.stringify({ ignorePatterns: ['dist'] }),
         'utf-8'
       );
-      const merged = g2.mergeDefaultSettings({ ignorePatterns: ['.git'], respectGitignore: true, clearOnBranchSwitch: false, quoteRotationInterval: 60 });
+      const merged = g2.mergeDefaultSettings({ ignorePatterns: ['.git'], respectGitignore: true, clearOnBranchSwitch: false, quoteRotationInterval: 30 });
       // Existing value preserved
       assert.deepEqual(merged.ignorePatterns, ['dist']);
       // Missing fields filled from defaults
       assert.equal(merged.respectGitignore, true);
-      assert.equal(merged.quoteRotationInterval, 60);
+      assert.equal(merged.quoteRotationInterval, 30);
       fs.rmSync(dir2, { recursive: true, force: true });
     });
 

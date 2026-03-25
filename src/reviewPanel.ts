@@ -206,6 +206,7 @@ export class ReviewPanel implements vscode.WebviewViewProvider {
       case 'setQuoteRotationInterval':
         if (msg.value !== undefined) {
           this.stateManager.setQuoteRotationInterval(msg.value as unknown as number);
+          this.refresh();
         }
         break;
       case 'acceptAll':

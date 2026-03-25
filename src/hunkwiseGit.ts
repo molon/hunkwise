@@ -16,7 +16,7 @@ const DEFAULT_SETTINGS: Settings = {
   ignorePatterns: process.platform === 'darwin' ? ['.git', '.DS_Store'] : ['.git'],
   respectGitignore: true,
   clearOnBranchSwitch: false,
-  quoteRotationInterval: 60,
+  quoteRotationInterval: 30,
 };
 
 /**
