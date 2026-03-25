@@ -240,7 +240,20 @@ export class FileWatcher {
     const filePath = uri.fsPath;
     if (this.shouldIgnore(filePath)) return;
     if (this.selfEditFiles.has(filePath)) return;
-    if (this.stateManager.getFile(filePath)) return;
+
+    const fileState = this.stateManager.getFile(filePath);
+    if (fileState?.status === 'reviewing') {
+      // File was deleted (showing deletion hunk) but now re-created — recompute
+      let diskContent: string;
+      try {
+        diskContent = await fs.promises.readFile(filePath, 'utf-8');
+      } catch {
+        return;
+      }
+      this.recomputeHunks(filePath, fileState.baseline, diskContent);
+      return;
+    }
+    if (fileState) return;
 
     const git = this.stateManager.git;
     if (!git) return;

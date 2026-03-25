@@ -125,3 +125,13 @@ export function getStateManager(): any {
   }
   return undefined;
 }
+
+export function getFileWatcher(): any {
+  const ext = vscode.extensions.getExtension('molon.hunkwise');
+  if (!ext || !ext.isActive) return undefined;
+  const api = ext.exports;
+  if (api && typeof api.getFileWatcher === 'function') {
+    return api.getFileWatcher();
+  }
+  return undefined;
+}

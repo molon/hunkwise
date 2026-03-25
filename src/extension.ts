@@ -8,7 +8,7 @@ import { ReviewPanel } from './reviewPanel';
 import { registerCommands, acceptHunk, discardHunk } from './commands';
 import { initLog, log } from './log';
 
-export async function activate(context: vscode.ExtensionContext): Promise<{ getReviewPanel: () => ReviewPanel | undefined; getStateManager: () => StateManager | undefined }> {
+export async function activate(context: vscode.ExtensionContext): Promise<{ getReviewPanel: () => ReviewPanel | undefined; getStateManager: () => StateManager | undefined; getFileWatcher: () => FileWatcher | undefined }> {
   initLog();
   const ext = vscode.extensions.getExtension('molon.hunkwise');
   log(`activate v${ext?.packageJSON?.version ?? '?'}`);
@@ -206,12 +206,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
 
   activeStateManager = stateManager;
   activeReviewPanel = reviewPanel;
+  activeFileWatcher = fileWatcher;
 
-  return { getReviewPanel, getStateManager };
+  return { getReviewPanel, getStateManager, getFileWatcher };
 }
 
 let activeStateManager: StateManager | undefined;
 let activeReviewPanel: ReviewPanel | undefined;
+let activeFileWatcher: FileWatcher | undefined;
 
 /** Exposed for integration tests */
 export function getReviewPanel(): ReviewPanel | undefined {
@@ -221,6 +223,11 @@ export function getReviewPanel(): ReviewPanel | undefined {
 /** Exposed for integration tests */
 export function getStateManager(): StateManager | undefined {
   return activeStateManager;
+}
+
+/** Exposed for integration tests */
+export function getFileWatcher(): FileWatcher | undefined {
+  return activeFileWatcher;
 }
 
 export async function deactivate(): Promise<void> {
