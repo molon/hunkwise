@@ -300,6 +300,7 @@ export class FileWatcher {
     if (this._suppressed) return;
     if (!this.stateManager.enabled) return;
     const filePath = uri.fsPath;
+    const basename = path.basename(filePath);
     if (this.shouldIgnore(filePath)) return;
     if (this.selfEditFiles.has(filePath)) return;
 
@@ -309,6 +310,7 @@ export class FileWatcher {
     if (this.pendingRenameOldPaths.has(filePath)) {
       // User-initiated rename — renameFile already migrated state+git, nothing to do
       this.pendingRenameOldPaths.delete(filePath);
+      log(`onDiskDelete(${basename}): rename old path, skip`);
       return;
     }
 
@@ -316,6 +318,7 @@ export class FileWatcher {
       // User-initiated delete (explorer / VSCode API) — treat as manual, remove baseline.
       // Always go through stateManager.removeFile so git ops are serialized via gitQueue.
       this.pendingUserDeletes.delete(filePath);
+      log(`onDiskDelete(${basename}): user delete, removeFile`);
       this.stateManager.removeFile(filePath);
       if (fileState) {
         this.onStateChanged();
@@ -324,11 +327,13 @@ export class FileWatcher {
     }
 
     // External tool deleted the file — always produce a hunk
-    if (!git) return;
+    if (!git) { log(`onDiskDelete(${basename}): no git, skip`); return; }
     const gitBaseline = fileState?.baseline ?? await git.getBaseline(filePath);
+    log(`onDiskDelete(${basename}): external delete, gitBaseline=${gitBaseline !== undefined ? `'${gitBaseline.length} chars'` : 'undefined'}`);
     if (gitBaseline === undefined || gitBaseline === '') {
       // No baseline (new untracked file deleted) — nothing to show
       if (fileState) {
+        log(`onDiskDelete(${basename}): no baseline, removing fileState`);
         this.stateManager.removeFile(filePath);
         this.onStateChanged();
       }
@@ -339,7 +344,6 @@ export class FileWatcher {
 
   private async onDiskChange(uri: vscode.Uri): Promise<void> {
     const filePath = uri.fsPath;
-    const basename = path.basename(filePath);
     if (this._suppressed) return;
     if (!this.stateManager.enabled) return;
 
@@ -374,7 +378,6 @@ export class FileWatcher {
 
     // External change — compare against hunkwise baseline
     const gitBaseline = await git.getBaseline(filePath);
-    log(`onDiskChange(${basename}): external change, gitBaseline=${gitBaseline !== undefined ? `'${gitBaseline.length} chars'` : 'undefined'}, openDoc=${!!openDoc}`);
     if (gitBaseline === undefined) {
       // No baseline in git — silently adopt current content as baseline rather than
       // treating as a new file. This avoids false "new file" hunks in cases like:
@@ -384,11 +387,9 @@ export class FileWatcher {
       // Genuine new files created while hunkwise is running are caught by onDidCreate,
       // not this path. This is intentionally consistent with syncIgnoreState's toAdd
       // behavior which also silently snapshots.
-      log(`onDiskChange(${basename}): no baseline, adopting current content`);
       this.stateManager.snapshotFile(filePath, diskContent);
       return;
     }
-    log(`onDiskChange(${basename}): has baseline, enterReviewing`);
     this.enterReviewing(filePath, gitBaseline, diskContent);
   }
 
