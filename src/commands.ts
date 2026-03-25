@@ -83,13 +83,7 @@ export async function acceptAllFiles(
   onStateChanged: () => void
 ): Promise<void> {
   for (const filePath of Array.from(stateManager.getAllFiles().keys())) {
-    let content: string;
-    try { content = fs.readFileSync(filePath, 'utf-8'); } catch { content = ''; }
-    if (content === '') {
-      stateManager.removeFile(filePath);
-    } else {
-      stateManager.exitReviewing(filePath, content);
-    }
+    acceptFileByPath(stateManager, filePath, () => {});
   }
   onStateChanged();
 }
@@ -99,23 +93,10 @@ export async function discardAllFiles(
   fileWatcher: FileWatcher,
   onStateChanged: () => void
 ): Promise<void> {
-  for (const [filePath, fileState] of Array.from(stateManager.getAllFiles().entries())) {
-    const uri = vscode.Uri.file(filePath);
-    fileWatcher.markSelfEdit(filePath);
+  for (const [filePath] of Array.from(stateManager.getAllFiles().entries())) {
     try {
-      const doc = await vscode.workspace.openTextDocument(uri);
-      const edit = new vscode.WorkspaceEdit();
-      const fullRange = new vscode.Range(
-        new vscode.Position(0, 0),
-        new vscode.Position(doc.lineCount - 1, doc.lineAt(doc.lineCount - 1).text.length)
-      );
-      edit.replace(uri, fullRange, fileState.baseline);
-      await vscode.workspace.applyEdit(edit);
-      await doc.save();
-      stateManager.exitReviewing(filePath);
-    } catch (err) { log(`discardAllFiles: failed to restore ${filePath}: ${err}`); } finally {
-      fileWatcher.clearSelfEdit(filePath);
-    }
+      await discardFileByPath(stateManager, fileWatcher, filePath, () => {});
+    } catch (err) { log(`discardAllFiles: failed to restore ${filePath}: ${err}`); }
   }
   onStateChanged();
 }
@@ -126,11 +107,15 @@ export function acceptFileByPath(
   onStateChanged: () => void
 ): void {
   if (!stateManager.getFile(filePath)) return;
-  let content: string;
-  try { content = fs.readFileSync(filePath, 'utf-8'); } catch { content = ''; }
-  if (content === '') {
+  const basename = path.basename(filePath);
+  if (!fs.existsSync(filePath)) {
+    // File was deleted — remove from tracking entirely
+    log(`acceptFileByPath(${basename}): file not on disk, removeFile`);
     stateManager.removeFile(filePath);
   } else {
+    // File exists (possibly empty) — accept current content as new baseline
+    const content = fs.readFileSync(filePath, 'utf-8');
+    log(`acceptFileByPath(${basename}): file exists, exitReviewing with content.len=${content.length}`);
     stateManager.exitReviewing(filePath, content);
   }
   onStateChanged();

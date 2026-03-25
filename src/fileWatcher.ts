@@ -235,40 +235,64 @@ export class FileWatcher {
   }
 
   private async onDiskCreate(uri: vscode.Uri): Promise<void> {
+    const filePath = uri.fsPath;
+    const basename = path.basename(filePath);
     if (this._suppressed) return;
     if (!this.stateManager.enabled) return;
-    const filePath = uri.fsPath;
     if (this.shouldIgnore(filePath)) return;
     if (this.selfEditFiles.has(filePath)) return;
-    if (this.stateManager.getFile(filePath)) return;
+
+    const fileState = this.stateManager.getFile(filePath);
+    log(`onDiskCreate(${basename}): fileState=${fileState ? `{status:${fileState.status}, baseline.len:${fileState.baseline.length}}` : 'undefined'}`);
+    if (fileState?.status === 'reviewing') {
+      // File was deleted (showing deletion hunk) but now re-created — recompute
+      let diskContent: string;
+      try {
+        diskContent = await fs.promises.readFile(filePath, 'utf-8');
+      } catch {
+        log(`onDiskCreate(${basename}): read failed while reviewing, skip`);
+        return;
+      }
+      log(`onDiskCreate(${basename}): reviewing, recompute hunks (baseline.len=${fileState.baseline.length}, disk.len=${diskContent.length})`);
+      this.recomputeHunks(filePath, fileState.baseline, diskContent);
+      return;
+    }
+    if (fileState) { log(`onDiskCreate(${basename}): has fileState but not reviewing, skip`); return; }
 
     const git = this.stateManager.git;
-    if (!git) return;
+    if (!git) { log(`onDiskCreate(${basename}): no git, skip`); return; }
 
     let diskContent: string;
     try {
       diskContent = await fs.promises.readFile(filePath, 'utf-8');
     } catch {
+      log(`onDiskCreate(${basename}): read failed, skip`);
       return;
     }
-    if (diskContent.length === 0) return;
+    if (diskContent.length === 0) { log(`onDiskCreate(${basename}): empty file, skip`); return; }
 
     const gitBaseline = await git.getBaseline(filePath);
+    log(`onDiskCreate(${basename}): gitBaseline=${gitBaseline !== undefined ? `'${gitBaseline.length} chars'` : 'undefined'}`);
     if (gitBaseline !== undefined) {
       // Hunkwise already has a baseline — treat as a change
+      log(`onDiskCreate(${basename}): has baseline, enterReviewing as change`);
       this.enterReviewing(filePath, gitBaseline, diskContent);
       return;
     }
 
     // Check if this was a manual create in VSCode (editor buffer matches disk)
     const openDoc = vscode.workspace.textDocuments.find(d => d.uri.fsPath === filePath);
-    if (openDoc && openDoc.getText() === diskContent) {
+    const bufferMatch = openDoc ? openDoc.getText() === diskContent : false;
+    log(`onDiskCreate(${basename}): openDoc=${!!openDoc}, bufferMatch=${bufferMatch}`);
+    if (openDoc && bufferMatch) {
       // User created/saved this file in VSCode — snapshot as baseline, no hunk
+      log(`onDiskCreate(${basename}): buffer matches disk, snapshot as baseline`);
       this.stateManager.snapshotFile(filePath, diskContent);
       return;
     }
 
     // External tool created this file — show as new file hunk
+    log(`onDiskCreate(${basename}): external create, enterReviewing as NEW`);
     this.enterReviewing(filePath, '', diskContent);
   }
 
@@ -289,11 +313,11 @@ export class FileWatcher {
     }
 
     if (this.pendingUserDeletes.has(filePath)) {
-      // User-initiated delete (explorer / VSCode API) — treat as manual, update baseline
+      // User-initiated delete (explorer / VSCode API) — treat as manual, remove baseline.
+      // Always go through stateManager.removeFile so git ops are serialized via gitQueue.
       this.pendingUserDeletes.delete(filePath);
-      if (git) await git.removeFile(filePath).catch(err => { log(`removeFile failed on user delete: ${err}`); });
+      this.stateManager.removeFile(filePath);
       if (fileState) {
-        this.stateManager.removeFile(filePath);
         this.onStateChanged();
       }
       return;
@@ -314,9 +338,10 @@ export class FileWatcher {
   }
 
   private async onDiskChange(uri: vscode.Uri): Promise<void> {
+    const filePath = uri.fsPath;
+    const basename = path.basename(filePath);
     if (this._suppressed) return;
     if (!this.stateManager.enabled) return;
-    const filePath = uri.fsPath;
 
     if (this.shouldIgnore(filePath)) return;
     if (this.selfEditFiles.has(filePath)) return;
@@ -349,6 +374,7 @@ export class FileWatcher {
 
     // External change — compare against hunkwise baseline
     const gitBaseline = await git.getBaseline(filePath);
+    log(`onDiskChange(${basename}): external change, gitBaseline=${gitBaseline !== undefined ? `'${gitBaseline.length} chars'` : 'undefined'}, openDoc=${!!openDoc}`);
     if (gitBaseline === undefined) {
       // No baseline in git — silently adopt current content as baseline rather than
       // treating as a new file. This avoids false "new file" hunks in cases like:
@@ -358,10 +384,11 @@ export class FileWatcher {
       // Genuine new files created while hunkwise is running are caught by onDidCreate,
       // not this path. This is intentionally consistent with syncIgnoreState's toAdd
       // behavior which also silently snapshots.
-      log(`no baseline for ${path.basename(filePath)}, adopting current content`);
+      log(`onDiskChange(${basename}): no baseline, adopting current content`);
       this.stateManager.snapshotFile(filePath, diskContent);
       return;
     }
+    log(`onDiskChange(${basename}): has baseline, enterReviewing`);
     this.enterReviewing(filePath, gitBaseline, diskContent);
   }
 
