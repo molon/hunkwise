@@ -9,12 +9,14 @@ interface Settings {
   ignorePatterns: string[];
   respectGitignore: boolean;
   clearOnBranchSwitch: boolean;
+  quoteRotationInterval: number;
 }
 
 const DEFAULT_SETTINGS: Settings = {
   ignorePatterns: process.platform === 'darwin' ? ['.git', '.DS_Store'] : ['.git'],
   respectGitignore: true,
   clearOnBranchSwitch: false,
+  quoteRotationInterval: 30,
 };
 
 /**
@@ -79,6 +81,9 @@ export class HunkwiseGit {
         ignorePatterns: parsed.ignorePatterns ?? [...DEFAULT_SETTINGS.ignorePatterns],
         respectGitignore: parsed.respectGitignore ?? DEFAULT_SETTINGS.respectGitignore,
         clearOnBranchSwitch: parsed.clearOnBranchSwitch ?? DEFAULT_SETTINGS.clearOnBranchSwitch,
+        quoteRotationInterval: (typeof parsed.quoteRotationInterval === 'number' && Number.isFinite(parsed.quoteRotationInterval) && parsed.quoteRotationInterval >= 0)
+          ? parsed.quoteRotationInterval
+          : DEFAULT_SETTINGS.quoteRotationInterval,
       };
     } catch {
       return { ...DEFAULT_SETTINGS, ignorePatterns: [...DEFAULT_SETTINGS.ignorePatterns] };

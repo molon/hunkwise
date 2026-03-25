@@ -55,7 +55,11 @@ Once enabled, any external tool (AI assistant, script, etc.) that writes to a fi
 
 ### Disable hunkwise
 
-Click **Disable** in the panel. All tracked state is cleared.
+Open **Settings** (gear icon in the panel title bar) and click **Disable** at the bottom. All tracked state is cleared.
+
+### Tip: Stack with Chat panel
+
+You can drag both the hunkwise panel and the Claude Code panel into the Chat panel to stack them as tabs in the same panel group — keeping Claude Code chat and hunk review at a glance.
 
 ## Commands
 
