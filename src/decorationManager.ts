@@ -290,7 +290,8 @@ export class DecorationManager {
         }),
       };
       return entry;
-    } catch {
+    } catch (err) {
+      console.warn('[hunkwise] createWebviewTextEditorInset failed:', err);
       return undefined;
     }
   }

@@ -59,7 +59,7 @@ async function enableHunkwise(
       new Promise(resolve => setTimeout(resolve, 750)),
       (async () => {
         await stateManager.setEnabled(true);
-        try { upsertGitignore(); } catch { /* non-fatal */ }
+        try { upsertGitignore(); } catch (err) { log(`upsertGitignore failed: ${err}`); }
         await stateManager.snapshotWorkspace((fp, isDir) => fileWatcher.shouldIgnore(fp, isDir));
       })(),
     ]);
@@ -113,7 +113,7 @@ export async function discardAllFiles(
       await vscode.workspace.applyEdit(edit);
       await doc.save();
       stateManager.exitReviewing(filePath);
-    } catch { /* skip files that can't be opened */ } finally {
+    } catch (err) { log(`discardAllFiles: failed to restore ${filePath}: ${err}`); } finally {
       fileWatcher.clearSelfEdit(filePath);
     }
   }

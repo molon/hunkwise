@@ -291,7 +291,7 @@ export class FileWatcher {
     if (this.pendingUserDeletes.has(filePath)) {
       // User-initiated delete (explorer / VSCode API) — treat as manual, update baseline
       this.pendingUserDeletes.delete(filePath);
-      if (git) await git.removeFile(filePath).catch(() => {});
+      if (git) await git.removeFile(filePath).catch(err => { log(`removeFile failed on user delete: ${err}`); });
       if (fileState) {
         this.stateManager.removeFile(filePath);
         this.onStateChanged();

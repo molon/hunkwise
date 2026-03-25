@@ -4,7 +4,7 @@ import * as path from 'path';
 import assert from 'assert';
 import { execSync } from 'child_process';
 import {
-  getWorkspaceRoot, hunkwiseGitEnv, gitListTracked,
+  getWorkspaceRoot, hunkwiseGitEnv, gitListTracked, gitGetBaseline,
   sleep, waitForCondition, enableHunkwise, disableHunkwise,
   writeFileExternally, cleanWorkspace, getReviewPanel, getStateManager,
 } from './helpers';
@@ -197,6 +197,43 @@ suite('hunkwise startup & loading integration', function () {
     const changedState = allFiles.get(path.join(root, 'will-change.txt'));
     assert.ok(changedState && changedState.status === 'reviewing',
       'will-change.txt should be in reviewing state');
+  });
+
+  test('corrupted git dir (HEAD missing) is re-initialized on enable', async () => {
+    const root = getWorkspaceRoot();
+    const hunkwiseDir = path.join(root, '.vscode', 'hunkwise');
+    const gitDir = path.join(hunkwiseDir, 'git');
+
+    // Create a file and enable hunkwise normally
+    writeFileExternally(path.join(root, 'recover.txt'), 'hello\n');
+    await enableHunkwise();
+    await waitForCondition(() => gitListTracked(root).includes('recover.txt'), 5000);
+
+    // Verify baseline was stored
+    const baseline = gitGetBaseline(root, 'recover.txt');
+    assert.strictEqual(baseline, 'hello\n', 'baseline should be stored');
+
+    // Disable hunkwise (cleans git dir)
+    await disableHunkwise();
+    assert.ok(!fs.existsSync(gitDir), 'git dir should be removed after disable');
+
+    // Simulate a corrupted git dir: directory exists but HEAD is missing
+    fs.mkdirSync(gitDir, { recursive: true });
+    // Write some garbage files to simulate partial init
+    fs.writeFileSync(path.join(gitDir, 'config'), 'garbage', 'utf-8');
+    assert.ok(fs.existsSync(gitDir), 'corrupted git dir should exist');
+    assert.ok(!fs.existsSync(path.join(gitDir, 'HEAD')), 'HEAD should NOT exist (corrupted)');
+
+    // Re-enable — initGit should detect corruption and re-initialize
+    await enableHunkwise();
+    await waitForCondition(() => gitListTracked(root).includes('recover.txt'), 5000);
+
+    // Verify the git repo is valid now
+    assert.ok(fs.existsSync(path.join(gitDir, 'HEAD')), 'HEAD should exist after recovery');
+
+    // Verify baseline was re-created
+    const newBaseline = gitGetBaseline(root, 'recover.txt');
+    assert.strictEqual(newBaseline, 'hello\n', 'baseline should be restored after recovery');
   });
 
   test('startup sync with error does not leave panel stuck in loading', async () => {
