@@ -139,11 +139,15 @@ export class HunkwiseGit {
         this.log('initGit: corrupted git dir detected (HEAD missing), re-initializing');
         fs.rmSync(this.gitDir, { recursive: true, force: true });
       }
+      if (this.destroyed) return;
       fs.mkdirSync(this.gitDir, { recursive: true });
       await this.git(['init']);
+      if (this.destroyed) return;
       await this.git(['config', 'user.email', 'hunkwise@localhost']);
+      if (this.destroyed) return;
       await this.git(['config', 'user.name', 'hunkwise']);
     }
+    if (this.destroyed) return;
     this.gitInitialized = true;
   }
 

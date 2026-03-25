@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { StateManager } from './stateManager';
 import { computeHunks, hunkId } from './diffEngine';
+import { log } from './log';
 
 // ── Added lines ──────────────────────────────────────────────────────────────
 const addedLineDecoration = vscode.window.createTextEditorDecorationType({
@@ -291,7 +292,7 @@ export class DecorationManager {
       };
       return entry;
     } catch (err) {
-      console.warn('[hunkwise] createWebviewTextEditorInset failed:', err);
+      log(`createWebviewTextEditorInset failed: ${err}`);
       return undefined;
     }
   }
