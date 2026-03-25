@@ -283,13 +283,46 @@ describe('HunkwiseGit', () => {
       const s = g2.loadSettings();
       assert.deepEqual(s.ignorePatterns, ['node_modules', 'dist']);
       assert.equal(s.respectGitignore, false);
+      assert.equal(s.quoteRotationInterval, 60);
+      fs.rmSync(dir2, { recursive: true, force: true });
+    });
+
+    it('round-trips quoteRotationInterval set to 0', () => {
+      const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hunkwise-settings-qri0-'));
+      const g2 = new HunkwiseGit(path.join(dir2, '.vscode', 'hunkwise'), dir2);
+      g2.saveSettings({ ignorePatterns: ['.git'], respectGitignore: true, clearOnBranchSwitch: false, quoteRotationInterval: 0 });
+      const s = g2.loadSettings();
+      assert.equal(s.quoteRotationInterval, 0);
+      fs.rmSync(dir2, { recursive: true, force: true });
+    });
+
+    it('round-trips quoteRotationInterval with custom value', () => {
+      const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hunkwise-settings-qri-'));
+      const g2 = new HunkwiseGit(path.join(dir2, '.vscode', 'hunkwise'), dir2);
+      g2.saveSettings({ ignorePatterns: ['.git'], respectGitignore: true, clearOnBranchSwitch: false, quoteRotationInterval: 30 });
+      const s = g2.loadSettings();
+      assert.equal(s.quoteRotationInterval, 30);
+      fs.rmSync(dir2, { recursive: true, force: true });
+    });
+
+    it('loadSettings defaults quoteRotationInterval when missing from file', () => {
+      const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hunkwise-settings-qri-missing-'));
+      fs.mkdirSync(path.join(dir2, '.vscode', 'hunkwise'), { recursive: true });
+      fs.writeFileSync(
+        path.join(dir2, '.vscode', 'hunkwise', 'settings.json'),
+        JSON.stringify({ ignorePatterns: ['.git'], respectGitignore: true, clearOnBranchSwitch: false }),
+        'utf-8'
+      );
+      const g2 = new HunkwiseGit(path.join(dir2, '.vscode', 'hunkwise'), dir2);
+      const s = g2.loadSettings();
+      assert.equal(s.quoteRotationInterval, 60);
       fs.rmSync(dir2, { recursive: true, force: true });
     });
 
     it('mergeDefaultSettings fills missing fields', () => {
       const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hunkwise-merge-'));
       const g2 = new HunkwiseGit(path.join(dir2, '.vscode', 'hunkwise'), dir2);
-      // Write partial settings (no respectGitignore)
+      // Write partial settings (no respectGitignore, no quoteRotationInterval)
       fs.mkdirSync(path.join(dir2, '.vscode', 'hunkwise'), { recursive: true });
       fs.writeFileSync(
         path.join(dir2, '.vscode', 'hunkwise', 'settings.json'),
@@ -299,18 +332,20 @@ describe('HunkwiseGit', () => {
       const merged = g2.mergeDefaultSettings({ ignorePatterns: ['.git'], respectGitignore: true, clearOnBranchSwitch: false, quoteRotationInterval: 60 });
       // Existing value preserved
       assert.deepEqual(merged.ignorePatterns, ['dist']);
-      // Missing field filled from defaults
+      // Missing fields filled from defaults
       assert.equal(merged.respectGitignore, true);
+      assert.equal(merged.quoteRotationInterval, 60);
       fs.rmSync(dir2, { recursive: true, force: true });
     });
 
     it('mergeDefaultSettings preserves all existing fields', () => {
       const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hunkwise-merge2-'));
       const g2 = new HunkwiseGit(path.join(dir2, '.vscode', 'hunkwise'), dir2);
-      g2.saveSettings({ ignorePatterns: ['custom'], respectGitignore: false, clearOnBranchSwitch: false, quoteRotationInterval: 60 });
+      g2.saveSettings({ ignorePatterns: ['custom'], respectGitignore: false, clearOnBranchSwitch: false, quoteRotationInterval: 30 });
       const merged = g2.mergeDefaultSettings({ ignorePatterns: ['.git'], respectGitignore: true, clearOnBranchSwitch: false, quoteRotationInterval: 60 });
       assert.deepEqual(merged.ignorePatterns, ['custom']);
       assert.equal(merged.respectGitignore, false);
+      assert.equal(merged.quoteRotationInterval, 30);
       fs.rmSync(dir2, { recursive: true, force: true });
     });
   });
