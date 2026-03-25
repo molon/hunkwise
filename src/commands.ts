@@ -107,12 +107,15 @@ export function acceptFileByPath(
   onStateChanged: () => void
 ): void {
   if (!stateManager.getFile(filePath)) return;
+  const basename = path.basename(filePath);
   if (!fs.existsSync(filePath)) {
     // File was deleted — remove from tracking entirely
+    log(`acceptFileByPath(${basename}): file not on disk, removeFile`);
     stateManager.removeFile(filePath);
   } else {
     // File exists (possibly empty) — accept current content as new baseline
     const content = fs.readFileSync(filePath, 'utf-8');
+    log(`acceptFileByPath(${basename}): file exists, exitReviewing with content.len=${content.length}`);
     stateManager.exitReviewing(filePath, content);
   }
   onStateChanged();
