@@ -71,7 +71,7 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "test": "rm -rf out-test && tsc -p ./tsconfig.test.json && node --test out-test/test/*.test.js",
+    "test": "rm -rf out-test && tsc -p ./tsconfig.test.json && mkdir -p out-test/node_modules/vscode && cp out-test/test/__mocks__/vscode.js out-test/node_modules/vscode/index.js && node --test out-test/test/*.test.js",
     "test:integration": "npm run compile && tsc -p ./tsconfig.integration.json && vscode-test"
   },
   "devDependencies": {

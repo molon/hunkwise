@@ -11,11 +11,11 @@
   "include": [
     "src/test/**/*.ts",
     "src/diffEngine.ts",
-    "src/hunkwiseGit.ts"
+    "src/hunkwiseGit.ts",
+    "src/gitignoreManager.ts"
   ],
   "exclude": [
     "node_modules",
-    "src/test/gitignoreManager.test.ts",
     "src/test/integration/**"
   ]
 }
