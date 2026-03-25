@@ -81,7 +81,9 @@ export class HunkwiseGit {
         ignorePatterns: parsed.ignorePatterns ?? [...DEFAULT_SETTINGS.ignorePatterns],
         respectGitignore: parsed.respectGitignore ?? DEFAULT_SETTINGS.respectGitignore,
         clearOnBranchSwitch: parsed.clearOnBranchSwitch ?? DEFAULT_SETTINGS.clearOnBranchSwitch,
-        quoteRotationInterval: parsed.quoteRotationInterval ?? DEFAULT_SETTINGS.quoteRotationInterval,
+        quoteRotationInterval: (typeof parsed.quoteRotationInterval === 'number' && Number.isFinite(parsed.quoteRotationInterval) && parsed.quoteRotationInterval >= 0)
+          ? parsed.quoteRotationInterval
+          : DEFAULT_SETTINGS.quoteRotationInterval,
       };
     } catch {
       return { ...DEFAULT_SETTINGS, ignorePatterns: [...DEFAULT_SETTINGS.ignorePatterns] };

@@ -276,15 +276,16 @@ export class StateManager {
   }
 
   setQuoteRotationInterval(value: number): void {
-    this._quoteRotationInterval = value;
+    const normalized = (Number.isFinite(value) && value >= 0) ? Math.floor(value) : 0;
+    this._quoteRotationInterval = normalized;
     if (this._enabled && this._git) {
-      this._git.saveSettings({ ignorePatterns: this._ignorePatterns, respectGitignore: this._respectGitignore, clearOnBranchSwitch: this._clearOnBranchSwitch, quoteRotationInterval: value });
+      this._git.saveSettings({ ignorePatterns: this._ignorePatterns, respectGitignore: this._respectGitignore, clearOnBranchSwitch: this._clearOnBranchSwitch, quoteRotationInterval: normalized });
     }
   }
 
   /**
-   * Reload ignorePatterns from settings.json (called when settings.json is modified externally).
-   * Returns the new patterns if changed, null if not enabled or no git.
+   * Reload all settings from settings.json (called when settings.json is modified externally).
+   * Returns the new ignorePatterns if enabled, null if not enabled or no git.
    */
   reloadIgnorePatterns(): string[] | null {
     if (!this._enabled || !this._git) return null;

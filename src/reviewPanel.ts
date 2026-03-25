@@ -203,12 +203,14 @@ export class ReviewPanel implements vscode.WebviewViewProvider {
           this.stateManager.setClearOnBranchSwitch(msg.value);
         }
         break;
-      case 'setQuoteRotationInterval':
-        if (msg.value !== undefined) {
-          this.stateManager.setQuoteRotationInterval(msg.value as unknown as number);
+      case 'setQuoteRotationInterval': {
+        const interval = Number(msg.value);
+        if (Number.isFinite(interval) && interval >= 0) {
+          this.stateManager.setQuoteRotationInterval(interval);
           this.refresh();
         }
         break;
+      }
       case 'acceptAll':
         await acceptAllFiles(this.stateManager, this.onStateChanged);
         break;
