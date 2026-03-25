@@ -19,6 +19,7 @@ interface PanelState {
   ignorePatterns: string[];
   respectGitignore: boolean;
   clearOnBranchSwitch: boolean;
+  quoteRotationInterval: number;
   totalFiles: number;
   totalAdded: number;
   totalRemoved: number;
@@ -165,6 +166,7 @@ export class ReviewPanel implements vscode.WebviewViewProvider {
       ignorePatterns: this.stateManager.ignorePatterns,
       respectGitignore: this.stateManager.respectGitignore,
       clearOnBranchSwitch: this.stateManager.clearOnBranchSwitch,
+      quoteRotationInterval: this.stateManager.quoteRotationInterval,
       totalFiles: files.length,
       totalAdded,
       totalRemoved,
@@ -199,6 +201,11 @@ export class ReviewPanel implements vscode.WebviewViewProvider {
       case 'setClearOnBranchSwitch':
         if (msg.value !== undefined) {
           this.stateManager.setClearOnBranchSwitch(msg.value);
+        }
+        break;
+      case 'setQuoteRotationInterval':
+        if (msg.value !== undefined) {
+          this.stateManager.setQuoteRotationInterval(msg.value as unknown as number);
         }
         break;
       case 'acceptAll':

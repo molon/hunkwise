@@ -24,6 +24,7 @@ export class StateManager {
   private _ignorePatterns: string[] = [...DEFAULT_IGNORE_PATTERNS];
   private _respectGitignore: boolean = true;
   private _clearOnBranchSwitch: boolean = false;
+  private _quoteRotationInterval: number = 60;
   private _git: HunkwiseGit | undefined;
 
   // Serial queue: git ops run one at a time; flush() awaits the tail
@@ -43,6 +44,7 @@ export class StateManager {
   get ignorePatterns(): string[] { return this._ignorePatterns; }
   get respectGitignore(): boolean { return this._respectGitignore; }
   get clearOnBranchSwitch(): boolean { return this._clearOnBranchSwitch; }
+  get quoteRotationInterval(): number { return this._quoteRotationInterval; }
   get dir(): string | undefined { return this.hunkwiseDir; }
   get git(): HunkwiseGit | undefined { return this._git; }
 
@@ -74,6 +76,7 @@ export class StateManager {
     this._ignorePatterns = settings.ignorePatterns;
     this._respectGitignore = settings.respectGitignore;
     this._clearOnBranchSwitch = settings.clearOnBranchSwitch;
+    this._quoteRotationInterval = settings.quoteRotationInterval;
 
     // Initialize git (idempotent) then restore in-memory state from HEAD
     await g.initGit();
@@ -194,10 +197,11 @@ export class StateManager {
       const g = this.ensureGit();
       if (!g) return;
       await g.initGit();
-      const merged = g.mergeDefaultSettings({ ignorePatterns: this._ignorePatterns, respectGitignore: this._respectGitignore, clearOnBranchSwitch: this._clearOnBranchSwitch });
+      const merged = g.mergeDefaultSettings({ ignorePatterns: this._ignorePatterns, respectGitignore: this._respectGitignore, clearOnBranchSwitch: this._clearOnBranchSwitch, quoteRotationInterval: this._quoteRotationInterval });
       this._ignorePatterns = merged.ignorePatterns;
       this._respectGitignore = merged.respectGitignore;
       this._clearOnBranchSwitch = merged.clearOnBranchSwitch;
+      this._quoteRotationInterval = merged.quoteRotationInterval;
     } else {
       this.state.clear();
       this._git?.destroyGit();
@@ -253,21 +257,28 @@ export class StateManager {
   setIgnorePatterns(patterns: string[]): void {
     this._ignorePatterns = patterns;
     if (this._enabled && this._git) {
-      this._git.saveSettings({ ignorePatterns: patterns, respectGitignore: this._respectGitignore, clearOnBranchSwitch: this._clearOnBranchSwitch });
+      this._git.saveSettings({ ignorePatterns: patterns, respectGitignore: this._respectGitignore, clearOnBranchSwitch: this._clearOnBranchSwitch, quoteRotationInterval: this._quoteRotationInterval });
     }
   }
 
   setRespectGitignore(value: boolean): void {
     this._respectGitignore = value;
     if (this._enabled && this._git) {
-      this._git.saveSettings({ ignorePatterns: this._ignorePatterns, respectGitignore: value, clearOnBranchSwitch: this._clearOnBranchSwitch });
+      this._git.saveSettings({ ignorePatterns: this._ignorePatterns, respectGitignore: value, clearOnBranchSwitch: this._clearOnBranchSwitch, quoteRotationInterval: this._quoteRotationInterval });
     }
   }
 
   setClearOnBranchSwitch(value: boolean): void {
     this._clearOnBranchSwitch = value;
     if (this._enabled && this._git) {
-      this._git.saveSettings({ ignorePatterns: this._ignorePatterns, respectGitignore: this._respectGitignore, clearOnBranchSwitch: value });
+      this._git.saveSettings({ ignorePatterns: this._ignorePatterns, respectGitignore: this._respectGitignore, clearOnBranchSwitch: value, quoteRotationInterval: this._quoteRotationInterval });
+    }
+  }
+
+  setQuoteRotationInterval(value: number): void {
+    this._quoteRotationInterval = value;
+    if (this._enabled && this._git) {
+      this._git.saveSettings({ ignorePatterns: this._ignorePatterns, respectGitignore: this._respectGitignore, clearOnBranchSwitch: this._clearOnBranchSwitch, quoteRotationInterval: value });
     }
   }
 
@@ -281,6 +292,7 @@ export class StateManager {
     this._ignorePatterns = settings.ignorePatterns;
     this._respectGitignore = settings.respectGitignore;
     this._clearOnBranchSwitch = settings.clearOnBranchSwitch;
+    this._quoteRotationInterval = settings.quoteRotationInterval;
     return this._ignorePatterns;
   }
 

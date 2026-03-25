@@ -30,7 +30,7 @@ body {
   justify-content: center;
   min-height: 100vh;
   padding: 20px;
-  gap: 12px;
+  gap: 6px;
   text-align: center;
   box-sizing: border-box;
 }
@@ -44,11 +44,28 @@ body {
 .splash-tagline {
   font-size: 13px;
   font-weight: 500;
+  font-style: italic;
   color: var(--vscode-foreground);
   opacity: 0.75;
-  max-width: 220px;
   line-height: 1.5;
   margin-bottom: 6px;
+  text-align: center;
+}
+
+.splash-textbox {
+  min-height: 3.5em;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  max-width: 220px;
+}
+
+.splash-cycle {
+  transition: opacity 0.6s ease;
+  margin-bottom: 0;
+}
+.splash-cycle-fade {
+  opacity: 0;
 }
 
 /* ── Buttons ── */
@@ -179,6 +196,17 @@ body {
   flex-shrink: 0;
   cursor: pointer;
   accent-color: var(--vscode-focusBorder);
+}
+
+.settings-input-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px 0;
+}
+
+.settings-number-input {
+  width: 80px;
 }
 
 .settings-check-text {

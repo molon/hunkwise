@@ -55,7 +55,11 @@ hunkwise 使用了 [VSCode 提案 API](https://code.visualstudio.com/api/advance
 
 ### 禁用 hunkwise
 
-在面板中点击 **Disable**，所有追踪状态将被清除。
+打开 **Settings**（面板标题栏的齿轮图标），在底部点击 **Disable**，所有追踪状态将被清除。
+
+### 提示：与 Chat 面板叠加
+
+你可以将 hunkwise 面板以及 Claude Code 面板都拖入 Chat 面板，将它们叠加为同一面板组中的标签页。这样 Claude Code 聊天和代码审查就可以一目了然。
 
 ## 命令
 

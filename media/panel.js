@@ -3,7 +3,7 @@
 const vscode = /** @type {any} */ (globalThis).acquireVsCodeApi();
 const app = document.getElementById('app');
 
-/** @type {{ enabled: boolean, ignorePatterns: string[], respectGitignore: boolean, clearOnBranchSwitch: boolean, totalFiles: number, totalAdded: number, totalRemoved: number, files: any[] } | null} */
+/** @type {{ enabled: boolean, ignorePatterns: string[], respectGitignore: boolean, clearOnBranchSwitch: boolean, quoteRotationInterval: number, totalFiles: number, totalAdded: number, totalRemoved: number, files: any[] } | null} */
 let currentState = null;
 /** @type {Set<string>} */
 const expandedFiles = new Set();
@@ -53,21 +53,24 @@ const SPLASH_QUOTES = [
   "Your future self will thank you. Or blame you. It depends on the diff.",
 ];
 
-/** Cached quote so it doesn't change on every render */
-let cachedQuote = '';
-/** Timestamp of when the cached quote was set */
-let cachedQuoteTime = 0;
-/** Minimum interval (ms) before picking a new quote */
-const QUOTE_MIN_INTERVAL = 30000; // 30 seconds
+/** Interval handle for idle screen text cycling */
+/** @type {ReturnType<typeof setTimeout> | null} */
+let idleCycleTimer = null;
+/** Last quote index, to avoid immediate repeat */
+let lastQuoteIndex = -1;
+
+/** @returns {string} */
+function pickNewQuote() {
+  let idx;
+  do { idx = Math.floor(Math.random() * SPLASH_QUOTES.length); } while (idx === lastQuoteIndex);
+  lastQuoteIndex = idx;
+  return SPLASH_QUOTES[idx];
+}
 
 /** @returns {string} */
 function randomQuote() {
-  const now = Date.now();
-  if (!cachedQuote || (now - cachedQuoteTime) >= QUOTE_MIN_INTERVAL) {
-    cachedQuote = SPLASH_QUOTES[Math.floor(Math.random() * SPLASH_QUOTES.length)];
-    cachedQuoteTime = now;
-  }
-  return cachedQuote;
+  if (lastQuoteIndex === -1) pickNewQuote();
+  return SPLASH_QUOTES[lastQuoteIndex];
 }
 
 /**
@@ -106,7 +109,7 @@ function appendIcon(parent) {
 }
 
 /**
- * @param {{ enabled: boolean, ignorePatterns: string[], respectGitignore: boolean, clearOnBranchSwitch: boolean, totalFiles: number, totalAdded: number, totalRemoved: number, files: any[] }} state
+ * @param {{ enabled: boolean, ignorePatterns: string[], respectGitignore: boolean, clearOnBranchSwitch: boolean, quoteRotationInterval: number, totalFiles: number, totalAdded: number, totalRemoved: number, files: any[] }} state
  */
 function render(state) {
   if (!app) return;
@@ -123,7 +126,7 @@ function render(state) {
   }
 
   if (state.totalFiles === 0) {
-    renderIdleScreen();
+    renderIdleScreen(state.quoteRotationInterval);
     return;
   }
 
@@ -141,19 +144,45 @@ function renderSetupScreen() {
   app.appendChild(screen);
 }
 
-function renderIdleScreen() {
+const IDLE_CYCLE_FADE = 600;    // ms fade transition
+
+/**
+ * @param {number} quoteRotationInterval minutes; 0 = no rotation
+ */
+function renderIdleScreen(quoteRotationInterval) {
   if (!app) return;
   const screen = el('div', 'splash-screen');
   appendIcon(screen);
-  screen.appendChild(el('p', 'splash-tagline', randomQuote()));
-  screen.appendChild(btn('Disable', 'btn-disable', () => {
-    vscode.postMessage({ command: 'disable' });
-  }));
+
+  const textBox = el('div', 'splash-textbox');
+  const cycleEl = el('p', 'splash-tagline splash-cycle');
+  cycleEl.textContent = pickNewQuote();
+  textBox.appendChild(cycleEl);
+  screen.appendChild(textBox);
+
   app.appendChild(screen);
+
+  // Clear any previous cycle timer
+  if (idleCycleTimer !== null) { clearTimeout(idleCycleTimer); idleCycleTimer = null; }
+
+  if (quoteRotationInterval > 0) {
+    const intervalMs = quoteRotationInterval * 60 * 1000;
+    function scheduleNext() {
+      idleCycleTimer = setTimeout(() => {
+        cycleEl.classList.add('splash-cycle-fade');
+        setTimeout(() => {
+          cycleEl.textContent = pickNewQuote();
+          cycleEl.classList.remove('splash-cycle-fade');
+          scheduleNext();
+        }, IDLE_CYCLE_FADE);
+      }, intervalMs);
+    }
+    scheduleNext();
+  }
 }
 
 /**
- * @param {{ ignorePatterns: string[], respectGitignore: boolean, clearOnBranchSwitch: boolean }} state
+ * @param {{ ignorePatterns: string[], respectGitignore: boolean, clearOnBranchSwitch: boolean, quoteRotationInterval: number }} state
  */
 function renderSettingsScreen(state) {
   if (!app) return;
@@ -209,7 +238,28 @@ function renderSettingsScreen(state) {
   branchRow.appendChild(branchText);
   gitignoreSection.appendChild(branchRow);
 
-  body.appendChild(gitignoreSection);
+  // ── Appearance ──
+  const appearanceSection = el('div', 'settings-section');
+  appearanceSection.appendChild(el('div', 'settings-section-title', 'Appearance'));
+
+  const rotationRow = el('div', 'settings-input-row');
+  const rotationLabel = el('div', 'settings-check-text');
+  rotationLabel.appendChild(el('span', 'settings-check-label', 'Quote rotation interval (minutes)'));
+  rotationLabel.appendChild(el('span', 'settings-check-desc', 'Rotate idle screen quotes at this interval. Set to 0 to disable.'));
+  rotationRow.appendChild(rotationLabel);
+  const rotationInput = /** @type {HTMLInputElement} */ (document.createElement('input'));
+  rotationInput.type = 'number';
+  rotationInput.className = 'pattern-input settings-number-input';
+  rotationInput.min = '0';
+  rotationInput.value = String(state.quoteRotationInterval);
+  rotationInput.addEventListener('change', () => {
+    const val = parseInt(rotationInput.value, 10);
+    if (!isNaN(val) && val >= 0) {
+      vscode.postMessage({ command: 'setQuoteRotationInterval', value: val });
+    }
+  });
+  rotationRow.appendChild(rotationInput);
+  appearanceSection.appendChild(rotationRow);
 
   // ── Exclude Patterns ──
   const patternSection = el('div', 'settings-section');
@@ -259,6 +309,17 @@ function renderSettingsScreen(state) {
   patternList.appendChild(addRow);
   patternSection.appendChild(patternList);
   body.appendChild(patternSection);
+  body.appendChild(gitignoreSection);
+  body.appendChild(appearanceSection);
+
+  // ── Disable ──
+  const disableSection = el('div', 'settings-section settings-section-danger');
+  disableSection.appendChild(el('div', 'settings-section-title', 'Danger Zone'));
+  disableSection.appendChild(el('p', 'settings-section-desc', 'Disables hunkwise and clears all tracked state for this project.'));
+  disableSection.appendChild(btn('Disable hunkwise', 'btn-disable', () => {
+    vscode.postMessage({ command: 'disable' });
+  }));
+  body.appendChild(disableSection);
 
   app.appendChild(body);
 }
