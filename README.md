@@ -13,6 +13,7 @@ AI coding tools like [Claude Code](https://docs.anthropic.com/en/docs/claude-cod
 **hunkwise** fills that gap by bringing per-hunk review controls directly into VSCode for any external file change.
 
 ![snapshot](media/snapshot.png)
+<img src="https://komarev.com/ghpvc/?username=molon-hunkwise" width="1" height="1" />
 
 ## Features
 
