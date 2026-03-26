@@ -49,17 +49,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
    * Close any hunkwise diff tabs whose file is no longer in reviewing state,
    * and open the normal file editor instead.
    */
-  async function closeStaleHunkwiseDiffTabs(): Promise<void> {
+  /**
+   * Close tabs for files that are no longer in reviewing state.
+   * - Hunkwise diff tabs: always close; reopen normal editor if file still exists on disk
+   * - Normal tabs for deleted files: close (new file was discarded)
+   */
+  async function closeStaleTabs(): Promise<void> {
     for (const group of vscode.window.tabGroups.all) {
       for (const tab of group.tabs) {
+        // Hunkwise diff tab
         if (tab.input instanceof vscode.TabInputTextDiff
           && tab.input.original.scheme === 'hunkwise-baseline') {
           const filePath = tab.input.modified.fsPath;
           const fileState = stateManager.getFile(filePath);
           if (!fileState || fileState.status !== 'reviewing') {
-            // Close the diff tab, then open the normal file
             await vscode.window.tabGroups.close(tab);
-            await vscode.window.showTextDocument(vscode.Uri.file(filePath));
+            if (fs.existsSync(filePath)) {
+              await vscode.window.showTextDocument(vscode.Uri.file(filePath));
+            }
+          }
+          continue;
+        }
+        // Normal text tab for a deleted file that exited reviewing
+        if (tab.input instanceof vscode.TabInputText) {
+          const filePath = tab.input.uri.fsPath;
+          if (tab.input.uri.scheme === 'file' && !fs.existsSync(filePath)) {
+            const fileState = stateManager.getFile(filePath);
+            if (!fileState || fileState.status !== 'reviewing') {
+              await vscode.window.tabGroups.close(tab);
+            }
           }
         }
       }
@@ -77,9 +95,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
 
   decorationManager = new DecorationManager(stateManager, (command, filePath, hId) => {
     if (command === 'accept') {
-      acceptHunk(stateManager, filePath, hId, () => { onStateChanged(); fireBaselineChange(filePath); void closeStaleHunkwiseDiffTabs().catch(err => log(`closeStaleHunkwiseDiffTabs: ${err}`)); }, 'inset');
+      acceptHunk(stateManager, filePath, hId, () => { onStateChanged(); fireBaselineChange(filePath); void closeStaleTabs().catch(err => log(`closeStaleTabs: ${err}`)); }, 'inset');
     } else {
-      discardHunk(stateManager, fileWatcher, filePath, hId, () => { onStateChanged(); void closeStaleHunkwiseDiffTabs().catch(err => log(`closeStaleHunkwiseDiffTabs: ${err}`)); }, 'inset');
+      discardHunk(stateManager, fileWatcher, filePath, hId, () => { onStateChanged(); void closeStaleTabs().catch(err => log(`closeStaleTabs: ${err}`)); }, 'inset');
     }
   });
 
@@ -102,7 +120,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
     }),
   );
 
-  reviewPanel = new ReviewPanel(context, stateManager, fileWatcher, onStateChanged, fireBaselineChange, closeStaleHunkwiseDiffTabs);
+  reviewPanel = new ReviewPanel(context, stateManager, fileWatcher, onStateChanged, fireBaselineChange, closeStaleTabs);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider('hunkwiseToolbar', reviewPanel)
   );
@@ -114,10 +132,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
   context.subscriptions.push(
     vscode.languages.registerCodeLensProvider({ scheme: 'file' }, diffCodeLensProvider),
     vscode.commands.registerCommand('hunkwise.codeLensAcceptHunk', (filePath: string, hId: string) => {
-      acceptHunk(stateManager, filePath, hId, () => { onStateChanged(); fireBaselineChange(filePath); void closeStaleHunkwiseDiffTabs().catch(err => log(`closeStaleHunkwiseDiffTabs: ${err}`)); }, 'codeLens');
+      acceptHunk(stateManager, filePath, hId, () => { onStateChanged(); fireBaselineChange(filePath); void closeStaleTabs().catch(err => log(`closeStaleTabs: ${err}`)); }, 'codeLens');
     }),
     vscode.commands.registerCommand('hunkwise.codeLensDiscardHunk', (filePath: string, hId: string) => {
-      discardHunk(stateManager, fileWatcher, filePath, hId, () => { onStateChanged(); void closeStaleHunkwiseDiffTabs().catch(err => log(`closeStaleHunkwiseDiffTabs: ${err}`)); }, 'codeLens');
+      discardHunk(stateManager, fileWatcher, filePath, hId, () => { onStateChanged(); void closeStaleTabs().catch(err => log(`closeStaleTabs: ${err}`)); }, 'codeLens');
     }),
   );
 

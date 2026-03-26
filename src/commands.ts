@@ -279,9 +279,15 @@ export async function discardHunk(
     const saved = vscode.workspace.textDocuments.find(d => d.uri.scheme === 'file' && d.uri.fsPath === filePath);
     if (saved) await saved.save();
     log(`discardHunk(${basename}): saved, doc.scheme=${saved?.uri.scheme ?? 'N/A'}, doc.len=${saved?.getText().length ?? 'N/A'}`);
-    const remainingHunks = computeHunks(fileState.baseline, saved?.getText() ?? doc.getText());
+    const currentText = saved?.getText() ?? doc.getText();
+    const remainingHunks = computeHunks(fileState.baseline, currentText);
     log(`discardHunk(${basename}): remainingHunks=${remainingHunks.length}`);
     if (remainingHunks.length === 0) {
+      if (fileState.baseline === '' && fs.existsSync(filePath)) {
+        // New file (baseline is empty) fully discarded — remove from disk
+        log(`discardHunk(${basename}): new file fully discarded, deleting`);
+        fs.unlinkSync(filePath);
+      }
       log(`discardHunk(${basename}): no hunks left, exitReviewing`);
       stateManager.exitReviewing(filePath);
     } else {

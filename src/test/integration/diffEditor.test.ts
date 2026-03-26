@@ -106,7 +106,7 @@ suite('hunkwise diff editor integration', function () {
     }
   });
 
-  // ── closeStaleHunkwiseDiffTabs ────────────────────────────────────────────
+  // ── closeStaleTabs ────────────────────────────────────────────
 
   test('accepting last hunk closes hunkwise diff tab', async () => {
     const filePath = await setupReviewingFile(
@@ -146,7 +146,7 @@ suite('hunkwise diff editor integration', function () {
     const ext = vscode.extensions.getExtension('molon.hunkwise');
     assert.ok(ext?.isActive);
 
-    // Use the CodeLens command which wires closeStaleHunkwiseDiffTabs
+    // Use the CodeLens command which wires closeStaleTabs
     await vscode.commands.executeCommand('hunkwise.codeLensAcceptHunk', filePath, hunkId(hunks[0]));
     await sleep(1000);
 

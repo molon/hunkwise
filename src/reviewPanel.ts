@@ -231,7 +231,10 @@ export class ReviewPanel implements vscode.WebviewViewProvider {
         break;
       case 'discardFile':
         if (msg.filePath) {
-          await discardFileByPath(this.stateManager, this.fileWatcher, msg.filePath, this.onStateChanged);
+          await discardFileByPath(this.stateManager, this.fileWatcher, msg.filePath, () => {
+            this.onStateChanged();
+            void this.onAfterHunkAction?.().catch(err => log(`onAfterHunkAction: ${err}`));
+          });
         }
         break;
       case 'acceptHunk':
