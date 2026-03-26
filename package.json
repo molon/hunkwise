@@ -37,10 +37,20 @@
         "command": "hunkwise.openSettings",
         "title": "hunkwise: Settings",
         "icon": "$(settings-gear)"
+      },
+      {
+        "command": "hunkwise.refresh",
+        "title": "hunkwise: Refresh State",
+        "icon": "$(refresh)"
       }
     ],
     "menus": {
       "view/title": [
+        {
+          "command": "hunkwise.refresh",
+          "when": "view == hunkwiseToolbar",
+          "group": "navigation"
+        },
         {
           "command": "hunkwise.openSettings",
           "when": "view == hunkwiseToolbar",

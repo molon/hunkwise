@@ -128,6 +128,75 @@ export class StateManager {
     }
   }
 
+  /**
+   * Rebuild in-memory state from git baselines, comparing with the current state.
+   * Logs a diff report showing what changed.
+   */
+  async rebuildState(shouldIgnore?: (filePath: string, isDirectory?: boolean) => boolean): Promise<void> {
+    const g = this._git;
+    if (!g || !this._enabled) {
+      log('rebuildState: not enabled or no git, skip');
+      return;
+    }
+
+    log('rebuildState: begin');
+
+    // Snapshot old state for comparison
+    const oldState = new Map<string, FileState>();
+    for (const [fp, fs] of this.state) {
+      oldState.set(fp, { ...fs });
+    }
+
+    // Rebuild: clear and reload from git (same logic as load, but without settings reload)
+    this.state.clear();
+    await g.initGit();
+    const tracked = await g.listTrackedFiles();
+    for (const filePath of tracked) {
+      if (shouldIgnore?.(filePath)) continue;
+      const baseline = await g.getBaseline(filePath);
+      if (baseline === undefined) continue;
+      let diskContent: string | undefined;
+      try { diskContent = await fs.promises.readFile(filePath, 'utf-8'); } catch { /* deleted or unreadable */ }
+      if (diskContent !== undefined && diskContent !== baseline) {
+        this.state.set(filePath, { status: 'reviewing', baseline });
+      }
+    }
+
+    // Compare old vs new state
+    const added: string[] = [];
+    const removed: string[] = [];
+    const baselineChanged: string[] = [];
+    const statusChanged: string[] = [];
+
+    const rootPath = this.workspaceRoot;
+    const rel = (fp: string) => rootPath ? path.relative(rootPath, fp) : fp;
+
+    for (const [fp, newFs] of this.state) {
+      const oldFs = oldState.get(fp);
+      if (!oldFs) {
+        added.push(rel(fp));
+      } else {
+        if (oldFs.baseline !== newFs.baseline) baselineChanged.push(rel(fp));
+        if (oldFs.status !== newFs.status) statusChanged.push(rel(fp));
+      }
+    }
+    for (const fp of oldState.keys()) {
+      if (!this.state.has(fp)) removed.push(rel(fp));
+    }
+
+    if (added.length === 0 && removed.length === 0 && baselineChanged.length === 0 && statusChanged.length === 0) {
+      log('rebuildState: no differences found — memory state matches git');
+    } else {
+      log(`rebuildState: differences found:`);
+      if (added.length > 0) log(`  added (in git but was missing from memory): ${added.join(', ')}`);
+      if (removed.length > 0) log(`  removed (in memory but not in git/disk): ${removed.join(', ')}`);
+      if (baselineChanged.length > 0) log(`  baseline changed: ${baselineChanged.join(', ')}`);
+      if (statusChanged.length > 0) log(`  status changed: ${statusChanged.join(', ')}`);
+    }
+
+    log(`rebuildState: done — ${this.state.size} file(s) in reviewing state`);
+  }
+
   // ── file state ────────────────────────────────────────────────────────────
 
   getFile(filePath: string): FileState | undefined {

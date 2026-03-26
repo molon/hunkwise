@@ -145,6 +145,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
   context.subscriptions.push(
     vscode.commands.registerCommand('hunkwise.openSettings', () => {
       reviewPanel?.openSettings();
+    }),
+    vscode.commands.registerCommand('hunkwise.refresh', async () => {
+      if (!stateManager.enabled) return;
+      reviewPanel?.setLoading(true);
+      try {
+        await stateManager.rebuildState((fp, isDir) => fileWatcher.shouldIgnore(fp, isDir));
+        onStateChanged();
+      } catch (err) {
+        log(`refresh: error — ${err}`);
+      } finally {
+        reviewPanel?.setLoading(false);
+      }
     })
   );
 
