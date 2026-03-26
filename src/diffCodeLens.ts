@@ -16,9 +16,12 @@ export class DiffCodeLensProvider implements vscode.CodeLensProvider {
     if (document.uri.scheme !== 'file') return [];
     if (!this.stateManager.enabled) return [];
 
-    // Only show CodeLenses when the file's hunkwise diff tab is the *active* tab.
-    // When the user switches to a normal editor tab, CodeLenses disappear.
+    // Only show CodeLenses when:
+    // 1. A hunkwise diff tab for this file is the active tab in some group
+    // 2. No normal editor (viewColumn defined) for this file is visible
+    //    (avoids duplicate actions when split-view shows both diff + normal editor)
     if (!this.isActiveHunkwiseDiffTab(document.uri)) return [];
+    if (this.hasVisibleNormalEditor(document.uri)) return [];
 
     const fileState = this.stateManager.getFile(document.uri.fsPath);
     if (!fileState || fileState.status !== 'reviewing') return [];
@@ -49,6 +52,15 @@ export class DiffCodeLensProvider implements vscode.CodeLensProvider {
     }
 
     return lenses;
+  }
+
+  private hasVisibleNormalEditor(uri: vscode.Uri): boolean {
+    const fsPath = uri.fsPath;
+    return vscode.window.visibleTextEditors.some(
+      e => e.document.uri.scheme === 'file'
+        && e.document.uri.fsPath === fsPath
+        && e.viewColumn !== undefined
+    );
   }
 
   private isActiveHunkwiseDiffTab(uri: vscode.Uri): boolean {
