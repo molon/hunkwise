@@ -239,7 +239,7 @@ export class ReviewPanel implements vscode.WebviewViewProvider {
           acceptHunk(this.stateManager, msg.filePath, msg.hunkId, () => {
             this.onStateChanged();
             this.onBaselineChanged?.(msg.filePath!);
-            this.onAfterHunkAction?.();
+            void this.onAfterHunkAction?.().catch(err => log(`onAfterHunkAction: ${err}`));
           }, 'panel');
         }
         break;
@@ -247,7 +247,7 @@ export class ReviewPanel implements vscode.WebviewViewProvider {
         if (msg.filePath && msg.hunkId) {
           await discardHunk(this.stateManager, this.fileWatcher, msg.filePath, msg.hunkId, () => {
             this.onStateChanged();
-            this.onAfterHunkAction?.();
+            void this.onAfterHunkAction?.().catch(err => log(`onAfterHunkAction: ${err}`));
           }, 'panel');
         }
         break;
@@ -320,14 +320,16 @@ export class ReviewPanel implements vscode.WebviewViewProvider {
     // Ensure CodeLens is enabled in diff editor so Accept/Discard actions are visible
     const diffConfig = vscode.workspace.getConfiguration('diffEditor');
     if (!diffConfig.get<boolean>('codeLens', false)) {
-      await diffConfig.update('codeLens', true, vscode.ConfigurationTarget.Global);
+      await diffConfig.update('codeLens', true, vscode.ConfigurationTarget.Workspace);
     }
 
     await vscode.commands.executeCommand('vscode.diff', baselineUri, currentUri, `${fileName} (hunkwise)`);
 
     // Jump to the target hunk position in the diff editor's modified side
     const fileState = this.stateManager.getFile(filePath);
-    const editor = vscode.window.activeTextEditor;
+    const editor = vscode.window.visibleTextEditors.find(
+      e => e.document.uri.scheme === 'file' && e.document.uri.fsPath === filePath
+    );
     if (fileState && editor) {
       const hunks = computeHunks(fileState.baseline, editor.document.getText());
       const target = targetHunkId

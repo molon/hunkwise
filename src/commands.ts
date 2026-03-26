@@ -272,6 +272,10 @@ export async function discardHunk(
     edit.replace(uri, new vscode.Range(startPos, endPos), replacement);
     const applied = await vscode.workspace.applyEdit(edit);
     log(`discardHunk(${basename}): applyEdit=${applied}`);
+    if (!applied) {
+      log(`discardHunk(${basename}): applyEdit failed, aborting`);
+      return;
+    }
     const saved = vscode.workspace.textDocuments.find(d => d.uri.scheme === 'file' && d.uri.fsPath === filePath);
     if (saved) await saved.save();
     log(`discardHunk(${basename}): saved, doc.scheme=${saved?.uri.scheme ?? 'N/A'}, doc.len=${saved?.getText().length ?? 'N/A'}`);

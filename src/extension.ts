@@ -77,9 +77,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
 
   decorationManager = new DecorationManager(stateManager, (command, filePath, hId) => {
     if (command === 'accept') {
-      acceptHunk(stateManager, filePath, hId, () => { onStateChanged(); fireBaselineChange(filePath); closeStaleHunkwiseDiffTabs(); }, 'inset');
+      acceptHunk(stateManager, filePath, hId, () => { onStateChanged(); fireBaselineChange(filePath); void closeStaleHunkwiseDiffTabs().catch(err => log(`closeStaleHunkwiseDiffTabs: ${err}`)); }, 'inset');
     } else {
-      discardHunk(stateManager, fileWatcher, filePath, hId, () => { onStateChanged(); closeStaleHunkwiseDiffTabs(); }, 'inset');
+      discardHunk(stateManager, fileWatcher, filePath, hId, () => { onStateChanged(); void closeStaleHunkwiseDiffTabs().catch(err => log(`closeStaleHunkwiseDiffTabs: ${err}`)); }, 'inset');
     }
   });
 
@@ -114,10 +114,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
   context.subscriptions.push(
     vscode.languages.registerCodeLensProvider({ scheme: 'file' }, diffCodeLensProvider),
     vscode.commands.registerCommand('hunkwise.codeLensAcceptHunk', (filePath: string, hId: string) => {
-      acceptHunk(stateManager, filePath, hId, () => { onStateChanged(); fireBaselineChange(filePath); closeStaleHunkwiseDiffTabs(); }, 'codeLens');
+      acceptHunk(stateManager, filePath, hId, () => { onStateChanged(); fireBaselineChange(filePath); void closeStaleHunkwiseDiffTabs().catch(err => log(`closeStaleHunkwiseDiffTabs: ${err}`)); }, 'codeLens');
     }),
     vscode.commands.registerCommand('hunkwise.codeLensDiscardHunk', (filePath: string, hId: string) => {
-      discardHunk(stateManager, fileWatcher, filePath, hId, () => { onStateChanged(); closeStaleHunkwiseDiffTabs(); }, 'codeLens');
+      discardHunk(stateManager, fileWatcher, filePath, hId, () => { onStateChanged(); void closeStaleHunkwiseDiffTabs().catch(err => log(`closeStaleHunkwiseDiffTabs: ${err}`)); }, 'codeLens');
     }),
   );
 

@@ -92,8 +92,12 @@ export class HunkwiseGit {
         quoteRotationInterval: (typeof parsed.quoteRotationInterval === 'number' && Number.isFinite(parsed.quoteRotationInterval) && parsed.quoteRotationInterval >= 0)
           ? parsed.quoteRotationInterval
           : DEFAULT_SETTINGS.quoteRotationInterval,
-        useDiffEditor: parsed.useDiffEditor ?? DEFAULT_SETTINGS.useDiffEditor,
-        showInlineDecorations: parsed.showInlineDecorations ?? DEFAULT_SETTINGS.showInlineDecorations,
+        useDiffEditor: typeof parsed.useDiffEditor === 'boolean'
+          ? parsed.useDiffEditor
+          : DEFAULT_SETTINGS.useDiffEditor,
+        showInlineDecorations: typeof parsed.showInlineDecorations === 'boolean'
+          ? parsed.showInlineDecorations
+          : DEFAULT_SETTINGS.showInlineDecorations,
       };
     } catch {
       return { ...DEFAULT_SETTINGS, ignorePatterns: [...DEFAULT_SETTINGS.ignorePatterns] };
