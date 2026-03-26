@@ -166,6 +166,8 @@ export class ReviewPanel implements vscode.WebviewViewProvider {
       });
     }
 
+    files.sort((a, b) => a.filePath.localeCompare(b.filePath));
+
     return {
       enabled: this.stateManager.enabled,
       ignorePatterns: this.stateManager.ignorePatterns,
