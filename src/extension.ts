@@ -46,10 +46,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
   }
 
   /**
-   * Close any hunkwise diff tabs whose file is no longer in reviewing state,
-   * and open the normal file editor instead.
-   */
-  /**
    * Close tabs for files that are no longer in reviewing state.
    * - Hunkwise diff tabs: always close; reopen normal editor if file still exists on disk
    * - Normal tabs for deleted files: close (new file was discarded)
@@ -133,6 +129,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
   // ── Diff CodeLens ─────────────────────────────────────────────────────────
   diffCodeLensProvider = new DiffCodeLensProvider(stateManager);
   context.subscriptions.push(
+    diffCodeLensProvider,
     vscode.languages.registerCodeLensProvider({ scheme: 'file' }, diffCodeLensProvider),
     vscode.commands.registerCommand('hunkwise.codeLensAcceptHunk', (filePath: string, hId: string) => {
       acceptHunk(stateManager, filePath, hId, () => { onStateChanged(); fireBaselineChange(filePath); void closeStaleTabs().catch(err => log(`closeStaleTabs: ${err}`)); }, 'codeLens');

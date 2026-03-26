@@ -12,6 +12,10 @@ export class DiffCodeLensProvider implements vscode.CodeLensProvider {
     this._onDidChangeCodeLenses.fire();
   }
 
+  dispose(): void {
+    this._onDidChangeCodeLenses.dispose();
+  }
+
   provideCodeLenses(document: vscode.TextDocument): vscode.CodeLens[] {
     if (document.uri.scheme !== 'file') return [];
     if (!this.stateManager.enabled) return [];

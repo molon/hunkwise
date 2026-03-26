@@ -141,26 +141,29 @@ export class StateManager {
 
     log('rebuildState: begin');
 
+    // Wait for pending git operations to complete before reading
+    await this.gitQueue;
+
     // Snapshot old state for comparison
     const oldState = new Map<string, FileState>();
     for (const [fp, fs] of this.state) {
       oldState.set(fp, { ...fs });
     }
 
-    // Rebuild: clear and reload from git (same logic as load, but without settings reload)
+    // Rebuild: clear and reload from git (same logic as load, but parallelized)
     this.state.clear();
     await g.initGit();
     const tracked = await g.listTrackedFiles();
-    for (const filePath of tracked) {
-      if (shouldIgnore?.(filePath)) continue;
+    const filtered = tracked.filter(fp => !shouldIgnore?.(fp));
+    await Promise.all(filtered.map(async filePath => {
       const baseline = await g.getBaseline(filePath);
-      if (baseline === undefined) continue;
+      if (baseline === undefined) return;
       let diskContent: string | undefined;
       try { diskContent = await fs.promises.readFile(filePath, 'utf-8'); } catch { /* deleted or unreadable */ }
       if (diskContent !== undefined && diskContent !== baseline) {
         this.state.set(filePath, { status: 'reviewing', baseline });
       }
-    }
+    }));
 
     // Compare old vs new state
     const added: string[] = [];

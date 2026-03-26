@@ -325,19 +325,15 @@ export class ReviewPanel implements vscode.WebviewViewProvider {
     const baselineUri = vscode.Uri.from({ scheme: 'hunkwise-baseline', path: filePath });
     const currentUri = vscode.Uri.file(filePath);
 
-    // Ensure CodeLens is enabled in diff editor so Accept/Discard actions are visible
-    const diffConfig = vscode.workspace.getConfiguration('diffEditor');
-    if (!diffConfig.get<boolean>('codeLens', false)) {
-      await diffConfig.update('codeLens', true, vscode.ConfigurationTarget.Workspace);
-    }
-
     await vscode.commands.executeCommand('vscode.diff', baselineUri, currentUri, `${fileName} (hunkwise)`);
 
-    // Jump to the target hunk position in the diff editor's modified side
+    // Jump to the target hunk position in the diff editor's modified side.
+    // Prefer the embedded editor (viewColumn undefined) over a normal editor for the same file.
     const fileState = this.stateManager.getFile(filePath);
-    const editor = vscode.window.visibleTextEditors.find(
+    const candidates = vscode.window.visibleTextEditors.filter(
       e => e.document.uri.scheme === 'file' && e.document.uri.fsPath === filePath
     );
+    const editor = candidates.find(e => e.viewColumn === undefined) ?? candidates[0];
     if (fileState && editor) {
       const hunks = computeHunks(fileState.baseline, editor.document.getText());
       const target = targetHunkId

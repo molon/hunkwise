@@ -286,7 +286,7 @@ export async function discardHunk(
       if (fileState.baseline === '' && fs.existsSync(filePath)) {
         // New file (baseline is empty) fully discarded — remove from disk
         log(`discardHunk(${basename}): new file fully discarded, deleting`);
-        fs.unlinkSync(filePath);
+        try { fs.unlinkSync(filePath); } catch (err) { log(`discardHunk(${basename}): unlink failed: ${err}`); }
       }
       log(`discardHunk(${basename}): no hunks left, exitReviewing`);
       stateManager.exitReviewing(filePath);
