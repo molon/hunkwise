@@ -185,10 +185,16 @@ body {
 /* ── Checkbox row ── */
 .settings-check-row {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
+  flex-direction: column;
+  gap: 3px;
   cursor: pointer;
-  padding: 2px 0;
+  padding: 6px 0;
+}
+
+.settings-check-desc-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
 }
 
 .settings-checkbox {
@@ -202,11 +208,21 @@ body {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 2px 0;
+  padding: 6px 0;
 }
 
 .settings-number-input {
-  width: 80px;
+  width: 55px;
+  flex-shrink: 0;
+  flex-grow: 0;
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+  color: var(--vscode-input-foreground);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  padding: 4px 6px;
+  border-radius: 3px;
+  margin-top: 2px;
 }
 
 .settings-check-text {
@@ -217,6 +233,7 @@ body {
 
 .settings-check-label {
   font-size: 12px;
+  font-weight: 600;
   color: var(--vscode-foreground);
   line-height: 1.4;
 }

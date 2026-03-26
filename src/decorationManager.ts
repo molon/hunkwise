@@ -115,7 +115,7 @@ export class DecorationManager {
 
   refresh(editors?: readonly vscode.TextEditor[]): void {
     const targets = editors ?? vscode.window.visibleTextEditors;
-    const diffPaths = this.hunkwiseDiffFilePaths();
+    const diffPaths = this.diffEditorFilePaths();
     for (const editor of targets) {
       this.applyToEditor(editor, diffPaths);
     }
@@ -132,16 +132,14 @@ export class DecorationManager {
   }
 
   /**
-   * Collect file paths that are open in a hunkwise diff tab.
+   * Collect file paths that are open in any diff tab (git, hunkwise, etc.).
    */
-  private hunkwiseDiffFilePaths(): Set<string> {
+  private diffEditorFilePaths(): Set<string> {
     const paths = new Set<string>();
     for (const group of vscode.window.tabGroups.all) {
       for (const tab of group.tabs) {
         if (tab.input instanceof vscode.TabInputTextDiff) {
-          if (tab.input.original.scheme === 'hunkwise-baseline') {
-            paths.add(tab.input.modified.fsPath);
-          }
+          paths.add(tab.input.modified.fsPath);
         }
       }
     }
@@ -153,12 +151,11 @@ export class DecorationManager {
     const editorKey = editor.document.uri.toString();
     const fileState = this.stateManager.getFile(filePath);
 
-    // Diff editor embeds sub-editors whose viewColumn is undefined.
-    // Normal editors always have a defined viewColumn.
-    // Skip insets when this is a diff-embedded editor for a hunkwise diff tab.
+    // Skip insets: in diff editors (viewColumn undefined), or when user disabled inline decorations
     const isInDiff = editor.viewColumn === undefined && diffPaths.has(filePath);
+    const skipInsets = isInDiff || !this.stateManager.showInlineDecorations;
 
-    if (!fileState || fileState.status !== 'reviewing' || isInDiff) {
+    if (!fileState || fileState.status !== 'reviewing' || skipInsets) {
       this.disposeInsetList(this.insets.get(editorKey) ?? []);
       this.insets.delete(editorKey);
       editor.setDecorations(addedLineDecoration, []);
@@ -310,7 +307,7 @@ export class DecorationManager {
           const targetEditor = vscode.window.visibleTextEditors.find(
             e => e.document.uri.toString() === editorKey
           );
-          if (targetEditor) this.applyToEditor(targetEditor, this.hunkwiseDiffFilePaths());
+          if (targetEditor) this.applyToEditor(targetEditor, this.diffEditorFilePaths());
         }),
       };
       return entry;

@@ -11,6 +11,7 @@ interface Settings {
   clearOnBranchSwitch: boolean;
   quoteRotationInterval: number;
   useDiffEditor: boolean;
+  showInlineDecorations: boolean;
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -19,6 +20,7 @@ const DEFAULT_SETTINGS: Settings = {
   clearOnBranchSwitch: false,
   quoteRotationInterval: 30,
   useDiffEditor: false,
+  showInlineDecorations: true,
 };
 
 /**
@@ -91,6 +93,7 @@ export class HunkwiseGit {
           ? parsed.quoteRotationInterval
           : DEFAULT_SETTINGS.quoteRotationInterval,
         useDiffEditor: parsed.useDiffEditor ?? DEFAULT_SETTINGS.useDiffEditor,
+        showInlineDecorations: parsed.showInlineDecorations ?? DEFAULT_SETTINGS.showInlineDecorations,
       };
     } catch {
       return { ...DEFAULT_SETTINGS, ignorePatterns: [...DEFAULT_SETTINGS.ignorePatterns] };
