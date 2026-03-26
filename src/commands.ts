@@ -177,8 +177,11 @@ export function acceptHunk(
   const doc = vscode.workspace.textDocuments.find(d => d.uri.fsPath === filePath);
   if (!doc) return;
 
-  const hunk = computeHunks(fileState.baseline, doc.getText()).find(h => hunkId(h) === id);
+  const hunks = computeHunks(fileState.baseline, doc.getText());
+  const hunk = hunks.find(h => hunkId(h) === id);
   if (!hunk) return;
+
+  const originalNewStart = hunk.newStart;
 
   const currentLines = doc.getText().split('\n');
   const baselineLines = fileState.baseline.split('\n');
@@ -189,15 +192,30 @@ export function acceptHunk(
   ].join('\n');
 
   fileState.baseline = newBaseline;
-  const noMoreHunks = computeHunks(newBaseline, doc.getText()).length === 0;
-  if (noMoreHunks) {
+  const remainingHunks = computeHunks(newBaseline, doc.getText());
+  if (remainingHunks.length === 0) {
     // Last hunk accepted — exit reviewing and snapshot final content
     stateManager.exitReviewing(filePath, doc.getText());
   } else {
     // More hunks remain — update in-memory state and snapshot intermediate baseline
     stateManager.setFile(filePath, fileState);
+    revealNextHunk(filePath, remainingHunks, originalNewStart);
   }
   onStateChanged();
+}
+
+/** Reveal the next hunk in the editor after an accept/discard operation. */
+function revealNextHunk(filePath: string, remainingHunks: ReturnType<typeof computeHunks>, originalNewStart: number): void {
+  const editor = vscode.window.visibleTextEditors.find(e => e.document.uri.fsPath === filePath);
+  if (!editor) return;
+
+  // Find the first remaining hunk at or after the original position
+  const next = remainingHunks.find(h => h.newStart >= originalNewStart) ?? remainingHunks[0];
+  if (!next) return;
+
+  const pos = new vscode.Position(Math.max(0, next.newStart - 1), 0);
+  editor.selection = new vscode.Selection(pos, pos);
+  editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
 }
 
 export async function discardHunk(
@@ -215,6 +233,8 @@ export async function discardHunk(
 
   const hunk = computeHunks(fileState.baseline, doc.getText()).find(h => hunkId(h) === id);
   if (!hunk) return;
+
+  const originalNewStart = hunk.newStart;
 
   const baselineLines = fileState.baseline.split('\n');
   const originalLines = baselineLines.slice(hunk.oldStart - 1, hunk.oldStart - 1 + hunk.oldLines);
@@ -239,8 +259,11 @@ export async function discardHunk(
     await vscode.workspace.applyEdit(edit);
     const saved = vscode.workspace.textDocuments.find(d => d.uri.fsPath === filePath);
     if (saved) await saved.save();
-    if (computeHunks(fileState.baseline, saved?.getText() ?? doc.getText()).length === 0) {
+    const remainingHunks = computeHunks(fileState.baseline, saved?.getText() ?? doc.getText());
+    if (remainingHunks.length === 0) {
       stateManager.exitReviewing(filePath);
+    } else {
+      revealNextHunk(filePath, remainingHunks, originalNewStart);
     }
     onStateChanged();
   } finally {
