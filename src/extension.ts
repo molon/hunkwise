@@ -6,6 +6,7 @@ import { FileWatcher } from './fileWatcher';
 import { DecorationManager } from './decorationManager';
 import { ReviewPanel } from './reviewPanel';
 import { registerCommands, acceptHunk, discardHunk } from './commands';
+import { DiffCodeLensProvider } from './diffCodeLens';
 import { initLog, log } from './log';
 
 export async function activate(context: vscode.ExtensionContext): Promise<{ getReviewPanel: () => ReviewPanel | undefined; getStateManager: () => StateManager | undefined; getFileWatcher: () => FileWatcher | undefined }> {
@@ -14,9 +15,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
   log(`activate v${ext?.packageJSON?.version ?? '?'}`);
   const stateManager = new StateManager();
 
-  // Content provider for showing deleted file baselines in diff view
+  // Content provider for showing baselines in diff view
+  const baselineChangeEmitter = new vscode.EventEmitter<vscode.Uri>();
   context.subscriptions.push(
+    baselineChangeEmitter,
     vscode.workspace.registerTextDocumentContentProvider('hunkwise-baseline', {
+      onDidChange: baselineChangeEmitter.event,
       provideTextDocumentContent(uri: vscode.Uri): string {
         const filePath = uri.path;
         const fileState = stateManager.getFile(filePath);
@@ -27,10 +31,39 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
 
   let decorationManager: DecorationManager | undefined;
   let reviewPanel: ReviewPanel | undefined;
+  let diffCodeLensProvider: DiffCodeLensProvider | undefined;
 
+  // Original state-changed callback — no diff-editor side effects
   function onStateChanged(): void {
     decorationManager?.refresh();
     reviewPanel?.refresh();
+    diffCodeLensProvider?.fire();
+  }
+
+  /** Notify the diff editor that a specific file's baseline changed (only after accept). */
+  function fireBaselineChange(filePath: string): void {
+    baselineChangeEmitter.fire(vscode.Uri.from({ scheme: 'hunkwise-baseline', path: filePath }));
+  }
+
+  /**
+   * Close any hunkwise diff tabs whose file is no longer in reviewing state,
+   * and open the normal file editor instead.
+   */
+  async function closeStaleHunkwiseDiffTabs(): Promise<void> {
+    for (const group of vscode.window.tabGroups.all) {
+      for (const tab of group.tabs) {
+        if (tab.input instanceof vscode.TabInputTextDiff
+          && tab.input.original.scheme === 'hunkwise-baseline') {
+          const filePath = tab.input.modified.fsPath;
+          const fileState = stateManager.getFile(filePath);
+          if (!fileState || fileState.status !== 'reviewing') {
+            // Close the diff tab, then open the normal file
+            await vscode.window.tabGroups.close(tab);
+            await vscode.window.showTextDocument(vscode.Uri.file(filePath));
+          }
+        }
+      }
+    }
   }
 
   let syncIgnore: () => void;
@@ -44,18 +77,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
 
   decorationManager = new DecorationManager(stateManager, (command, filePath, hId) => {
     if (command === 'accept') {
-      acceptHunk(stateManager, filePath, hId, onStateChanged);
+      acceptHunk(stateManager, filePath, hId, () => { onStateChanged(); fireBaselineChange(filePath); closeStaleHunkwiseDiffTabs(); }, 'inset');
     } else {
-      discardHunk(stateManager, fileWatcher, filePath, hId, onStateChanged);
+      discardHunk(stateManager, fileWatcher, filePath, hId, () => { onStateChanged(); closeStaleHunkwiseDiffTabs(); }, 'inset');
     }
   });
 
   context.subscriptions.push(
     vscode.window.onDidChangeVisibleTextEditors(editors => {
       decorationManager?.refresh(editors);
+      diffCodeLensProvider?.fire();
     }),
     vscode.window.onDidChangeActiveTextEditor(editor => {
       if (editor) decorationManager?.refresh([editor]);
+      diffCodeLensProvider?.fire();
     }),
     vscode.workspace.onDidChangeTextDocument(e => {
       if (e.document.uri.scheme !== 'file') return;
@@ -67,12 +102,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
     }),
   );
 
-  reviewPanel = new ReviewPanel(context, stateManager, fileWatcher, onStateChanged);
+  reviewPanel = new ReviewPanel(context, stateManager, fileWatcher, onStateChanged, fireBaselineChange, closeStaleHunkwiseDiffTabs);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider('hunkwiseToolbar', reviewPanel)
   );
 
   registerCommands(context, stateManager, fileWatcher, reviewPanel, onStateChanged);
+
+  // ── Diff CodeLens ─────────────────────────────────────────────────────────
+  diffCodeLensProvider = new DiffCodeLensProvider(stateManager);
+  context.subscriptions.push(
+    vscode.languages.registerCodeLensProvider({ scheme: 'file' }, diffCodeLensProvider),
+    vscode.commands.registerCommand('hunkwise.codeLensAcceptHunk', (filePath: string, hId: string) => {
+      acceptHunk(stateManager, filePath, hId, () => { onStateChanged(); fireBaselineChange(filePath); closeStaleHunkwiseDiffTabs(); }, 'codeLens');
+    }),
+    vscode.commands.registerCommand('hunkwise.codeLensDiscardHunk', (filePath: string, hId: string) => {
+      discardHunk(stateManager, fileWatcher, filePath, hId, () => { onStateChanged(); closeStaleHunkwiseDiffTabs(); }, 'codeLens');
+    }),
+  );
 
   context.subscriptions.push(
     vscode.commands.registerCommand('hunkwise.openSettings', () => {

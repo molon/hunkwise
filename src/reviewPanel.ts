@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import { StateManager } from './stateManager';
 import { FileWatcher } from './fileWatcher';
 import { computeHunks, hunkId } from './diffEngine';
+import { log } from './log';
 
 import {
   acceptAllFiles,
@@ -20,6 +21,7 @@ interface PanelState {
   respectGitignore: boolean;
   clearOnBranchSwitch: boolean;
   quoteRotationInterval: number;
+  useDiffEditor: boolean;
   totalFiles: number;
   totalAdded: number;
   totalRemoved: number;
@@ -56,7 +58,9 @@ export class ReviewPanel implements vscode.WebviewViewProvider {
     private context: vscode.ExtensionContext,
     private stateManager: StateManager,
     private fileWatcher: FileWatcher,
-    private onStateChanged: () => void
+    private onStateChanged: () => void,
+    private onBaselineChanged?: (filePath: string) => void,
+    private onAfterHunkAction?: () => Promise<void>
   ) {}
 
   resolveWebviewView(webviewView: vscode.WebviewView): void {
@@ -167,6 +171,7 @@ export class ReviewPanel implements vscode.WebviewViewProvider {
       respectGitignore: this.stateManager.respectGitignore,
       clearOnBranchSwitch: this.stateManager.clearOnBranchSwitch,
       quoteRotationInterval: this.stateManager.quoteRotationInterval,
+      useDiffEditor: this.stateManager.useDiffEditor,
       totalFiles: files.length,
       totalAdded,
       totalRemoved,
@@ -229,24 +234,41 @@ export class ReviewPanel implements vscode.WebviewViewProvider {
         break;
       case 'acceptHunk':
         if (msg.filePath && msg.hunkId) {
-          acceptHunk(this.stateManager, msg.filePath, msg.hunkId, this.onStateChanged);
+          acceptHunk(this.stateManager, msg.filePath, msg.hunkId, () => {
+            this.onStateChanged();
+            this.onBaselineChanged?.(msg.filePath!);
+            this.onAfterHunkAction?.();
+          }, 'panel');
         }
         break;
       case 'discardHunk':
         if (msg.filePath && msg.hunkId) {
-          await discardHunk(this.stateManager, this.fileWatcher, msg.filePath, msg.hunkId, this.onStateChanged);
+          await discardHunk(this.stateManager, this.fileWatcher, msg.filePath, msg.hunkId, () => {
+            this.onStateChanged();
+            this.onAfterHunkAction?.();
+          }, 'panel');
+        }
+        break;
+      case 'setUseDiffEditor':
+        if (msg.value !== undefined) {
+          this.stateManager.setUseDiffEditor(msg.value as boolean);
         }
         break;
       case 'openFile':
         if (msg.filePath) {
-          const fileState = this.stateManager.getFile(msg.filePath);
-          const doc = await vscode.window.showTextDocument(vscode.Uri.file(msg.filePath));
-          if (fileState) {
-            const hunks = computeHunks(fileState.baseline, doc.document.getText());
-            if (hunks.length > 0) {
-              const pos = new vscode.Position(Math.max(0, hunks[0].newStart - 1), 0);
-              doc.selection = new vscode.Selection(pos, pos);
-              doc.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+          log(`openFile(${path.basename(msg.filePath)}): opening in ${this.stateManager.useDiffEditor ? 'diffEditor' : 'normalEditor'}`);
+          if (this.stateManager.useDiffEditor) {
+            await this.openDiffEditor(msg.filePath);
+          } else {
+            const fileState = this.stateManager.getFile(msg.filePath);
+            const doc = await vscode.window.showTextDocument(vscode.Uri.file(msg.filePath));
+            if (fileState) {
+              const hunks = computeHunks(fileState.baseline, doc.document.getText());
+              if (hunks.length > 0) {
+                const pos = new vscode.Position(Math.max(0, hunks[0].newStart - 1), 0);
+                doc.selection = new vscode.Selection(pos, pos);
+                doc.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+              }
             }
           }
         }
@@ -261,19 +283,53 @@ export class ReviewPanel implements vscode.WebviewViewProvider {
         break;
       case 'jumpToHunk':
         if (msg.filePath && msg.hunkId) {
-          const fileState = this.stateManager.getFile(msg.filePath);
-          if (fileState) {
-            const doc = await vscode.window.showTextDocument(vscode.Uri.file(msg.filePath));
-            const hunk = computeHunks(fileState.baseline, doc.document.getText())
-              .find(h => hunkId(h) === msg.hunkId);
-            if (hunk) {
-              const pos = new vscode.Position(Math.max(0, hunk.newStart - 1), 0);
-              doc.selection = new vscode.Selection(pos, pos);
-              doc.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+          log(`jumpToHunk(${path.basename(msg.filePath)}): hunkId=${msg.hunkId}, opening in ${this.stateManager.useDiffEditor ? 'diffEditor' : 'normalEditor'}`);
+          if (this.stateManager.useDiffEditor) {
+            await this.openDiffEditor(msg.filePath, msg.hunkId);
+          } else {
+            const fileState = this.stateManager.getFile(msg.filePath);
+            if (fileState) {
+              const doc = await vscode.window.showTextDocument(vscode.Uri.file(msg.filePath));
+              const hunk = computeHunks(fileState.baseline, doc.document.getText())
+                .find(h => hunkId(h) === msg.hunkId);
+              if (hunk) {
+                const pos = new vscode.Position(Math.max(0, hunk.newStart - 1), 0);
+                doc.selection = new vscode.Selection(pos, pos);
+                doc.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+              }
             }
           }
         }
         break;
+    }
+  }
+
+  private async openDiffEditor(filePath: string, targetHunkId?: string): Promise<void> {
+    const fileName = path.basename(filePath);
+    const baselineUri = vscode.Uri.from({ scheme: 'hunkwise-baseline', path: filePath });
+    const currentUri = vscode.Uri.file(filePath);
+
+    // Ensure CodeLens is enabled in diff editor so Accept/Discard actions are visible
+    const diffConfig = vscode.workspace.getConfiguration('diffEditor');
+    if (!diffConfig.get<boolean>('codeLens', false)) {
+      await diffConfig.update('codeLens', true, vscode.ConfigurationTarget.Global);
+    }
+
+    await vscode.commands.executeCommand('vscode.diff', baselineUri, currentUri, `${fileName} (hunkwise)`);
+
+    // Jump to the target hunk position in the diff editor's modified side
+    const fileState = this.stateManager.getFile(filePath);
+    const editor = vscode.window.activeTextEditor;
+    if (fileState && editor) {
+      const hunks = computeHunks(fileState.baseline, editor.document.getText());
+      const target = targetHunkId
+        ? hunks.find(h => hunkId(h) === targetHunkId)
+        : hunks[0];
+      if (target) {
+        const pos = new vscode.Position(Math.max(0, target.newStart - 1), 0);
+        editor.selection = new vscode.Selection(pos, pos);
+        editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+      }
     }
   }
 

@@ -3,7 +3,7 @@
 const vscode = /** @type {any} */ (globalThis).acquireVsCodeApi();
 const app = document.getElementById('app');
 
-/** @type {{ enabled: boolean, ignorePatterns: string[], respectGitignore: boolean, clearOnBranchSwitch: boolean, quoteRotationInterval: number, totalFiles: number, totalAdded: number, totalRemoved: number, files: any[] } | null} */
+/** @type {{ enabled: boolean, ignorePatterns: string[], respectGitignore: boolean, clearOnBranchSwitch: boolean, quoteRotationInterval: number, useDiffEditor: boolean, totalFiles: number, totalAdded: number, totalRemoved: number, files: any[] } | null} */
 let currentState = null;
 /** @type {Set<string>} */
 const expandedFiles = new Set();
@@ -121,7 +121,7 @@ function appendIcon(parent) {
 }
 
 /**
- * @param {{ enabled: boolean, ignorePatterns: string[], respectGitignore: boolean, clearOnBranchSwitch: boolean, quoteRotationInterval: number, totalFiles: number, totalAdded: number, totalRemoved: number, files: any[] }} state
+ * @param {{ enabled: boolean, ignorePatterns: string[], respectGitignore: boolean, clearOnBranchSwitch: boolean, quoteRotationInterval: number, useDiffEditor: boolean, totalFiles: number, totalAdded: number, totalRemoved: number, files: any[] }} state
  */
 function render(state) {
   if (!app) return;
@@ -196,7 +196,7 @@ function renderIdleScreen(quoteRotationInterval) {
 }
 
 /**
- * @param {{ ignorePatterns: string[], respectGitignore: boolean, clearOnBranchSwitch: boolean, quoteRotationInterval: number }} state
+ * @param {{ ignorePatterns: string[], respectGitignore: boolean, clearOnBranchSwitch: boolean, quoteRotationInterval: number, useDiffEditor: boolean }} state
  */
 function renderSettingsScreen(state) {
   if (!app) return;
@@ -275,6 +275,24 @@ function renderSettingsScreen(state) {
   rotationRow.appendChild(rotationInput);
   appearanceSection.appendChild(rotationRow);
 
+  // Use diff editor
+  const diffEditorRow = el('label', 'settings-check-row');
+  const diffEditorCheckbox = /** @type {HTMLInputElement} */ (document.createElement('input'));
+  diffEditorCheckbox.type = 'checkbox';
+  diffEditorCheckbox.className = 'settings-checkbox';
+  diffEditorCheckbox.checked = state.useDiffEditor;
+  diffEditorCheckbox.addEventListener('change', () => {
+    vscode.postMessage({ command: 'setUseDiffEditor', value: diffEditorCheckbox.checked });
+  });
+  const diffEditorLabel = el('span', 'settings-check-label', 'Use diff editor');
+  const diffEditorDesc = el('span', 'settings-check-desc', 'Clicking files or hunks in the panel opens a diff view (baseline vs current) instead of the inline editor');
+  const diffEditorText = el('div', 'settings-check-text');
+  diffEditorText.appendChild(diffEditorLabel);
+  diffEditorText.appendChild(diffEditorDesc);
+  diffEditorRow.appendChild(diffEditorCheckbox);
+  diffEditorRow.appendChild(diffEditorText);
+  appearanceSection.appendChild(diffEditorRow);
+
   // ── Exclude Patterns ──
   const patternSection = el('div', 'settings-section');
   patternSection.appendChild(el('div', 'settings-section-title', 'Exclude Patterns'));
@@ -322,9 +340,9 @@ function renderSettingsScreen(state) {
   addRow.appendChild(addBtn);
   patternList.appendChild(addRow);
   patternSection.appendChild(patternList);
+  body.appendChild(appearanceSection);
   body.appendChild(patternSection);
   body.appendChild(gitignoreSection);
-  body.appendChild(appearanceSection);
 
   // ── Disable ──
   const disableSection = el('div', 'settings-section settings-section-danger');

@@ -10,6 +10,7 @@ interface Settings {
   respectGitignore: boolean;
   clearOnBranchSwitch: boolean;
   quoteRotationInterval: number;
+  useDiffEditor: boolean;
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -17,6 +18,7 @@ const DEFAULT_SETTINGS: Settings = {
   respectGitignore: true,
   clearOnBranchSwitch: false,
   quoteRotationInterval: 30,
+  useDiffEditor: false,
 };
 
 /**
@@ -88,6 +90,7 @@ export class HunkwiseGit {
         quoteRotationInterval: (typeof parsed.quoteRotationInterval === 'number' && Number.isFinite(parsed.quoteRotationInterval) && parsed.quoteRotationInterval >= 0)
           ? parsed.quoteRotationInterval
           : DEFAULT_SETTINGS.quoteRotationInterval,
+        useDiffEditor: parsed.useDiffEditor ?? DEFAULT_SETTINGS.useDiffEditor,
       };
     } catch {
       return { ...DEFAULT_SETTINGS, ignorePatterns: [...DEFAULT_SETTINGS.ignorePatterns] };

@@ -115,8 +115,9 @@ export class DecorationManager {
 
   refresh(editors?: readonly vscode.TextEditor[]): void {
     const targets = editors ?? vscode.window.visibleTextEditors;
+    const diffPaths = this.hunkwiseDiffFilePaths();
     for (const editor of targets) {
-      this.applyToEditor(editor);
+      this.applyToEditor(editor, diffPaths);
     }
   }
 
@@ -130,12 +131,34 @@ export class DecorationManager {
     }
   }
 
-  private applyToEditor(editor: vscode.TextEditor): void {
+  /**
+   * Collect file paths that are open in a hunkwise diff tab.
+   */
+  private hunkwiseDiffFilePaths(): Set<string> {
+    const paths = new Set<string>();
+    for (const group of vscode.window.tabGroups.all) {
+      for (const tab of group.tabs) {
+        if (tab.input instanceof vscode.TabInputTextDiff) {
+          if (tab.input.original.scheme === 'hunkwise-baseline') {
+            paths.add(tab.input.modified.fsPath);
+          }
+        }
+      }
+    }
+    return paths;
+  }
+
+  private applyToEditor(editor: vscode.TextEditor, diffPaths: Set<string>): void {
     const filePath = editor.document.uri.fsPath;
     const editorKey = editor.document.uri.toString();
     const fileState = this.stateManager.getFile(filePath);
 
-    if (!fileState || fileState.status !== 'reviewing') {
+    // Diff editor embeds sub-editors whose viewColumn is undefined.
+    // Normal editors always have a defined viewColumn.
+    // Skip insets when this is a diff-embedded editor for a hunkwise diff tab.
+    const isInDiff = editor.viewColumn === undefined && diffPaths.has(filePath);
+
+    if (!fileState || fileState.status !== 'reviewing' || isInDiff) {
       this.disposeInsetList(this.insets.get(editorKey) ?? []);
       this.insets.delete(editorKey);
       editor.setDecorations(addedLineDecoration, []);
@@ -287,7 +310,7 @@ export class DecorationManager {
           const targetEditor = vscode.window.visibleTextEditors.find(
             e => e.document.uri.toString() === editorKey
           );
-          if (targetEditor) this.applyToEditor(targetEditor);
+          if (targetEditor) this.applyToEditor(targetEditor, this.hunkwiseDiffFilePaths());
         }),
       };
       return entry;

@@ -25,6 +25,7 @@ export class StateManager {
   private _respectGitignore: boolean = true;
   private _clearOnBranchSwitch: boolean = false;
   private _quoteRotationInterval: number = 30;
+  private _useDiffEditor: boolean = false;
   private _git: HunkwiseGit | undefined;
 
   // Serial queue: git ops run one at a time; flush() awaits the tail
@@ -45,6 +46,7 @@ export class StateManager {
   get respectGitignore(): boolean { return this._respectGitignore; }
   get clearOnBranchSwitch(): boolean { return this._clearOnBranchSwitch; }
   get quoteRotationInterval(): number { return this._quoteRotationInterval; }
+  get useDiffEditor(): boolean { return this._useDiffEditor; }
   get dir(): string | undefined { return this.hunkwiseDir; }
   get git(): HunkwiseGit | undefined { return this._git; }
 
@@ -77,6 +79,7 @@ export class StateManager {
     this._respectGitignore = settings.respectGitignore;
     this._clearOnBranchSwitch = settings.clearOnBranchSwitch;
     this._quoteRotationInterval = settings.quoteRotationInterval;
+    this._useDiffEditor = settings.useDiffEditor;
 
     // Initialize git (idempotent) then restore in-memory state from HEAD
     await g.initGit();
@@ -197,11 +200,12 @@ export class StateManager {
       const g = this.ensureGit();
       if (!g) return;
       await g.initGit();
-      const merged = g.mergeDefaultSettings({ ignorePatterns: this._ignorePatterns, respectGitignore: this._respectGitignore, clearOnBranchSwitch: this._clearOnBranchSwitch, quoteRotationInterval: this._quoteRotationInterval });
+      const merged = g.mergeDefaultSettings(this.currentSettings());
       this._ignorePatterns = merged.ignorePatterns;
       this._respectGitignore = merged.respectGitignore;
       this._clearOnBranchSwitch = merged.clearOnBranchSwitch;
       this._quoteRotationInterval = merged.quoteRotationInterval;
+      this._useDiffEditor = merged.useDiffEditor;
     } else {
       this.state.clear();
       this._git?.destroyGit();
@@ -254,24 +258,28 @@ export class StateManager {
     }
   }
 
+  private currentSettings() {
+    return { ignorePatterns: this._ignorePatterns, respectGitignore: this._respectGitignore, clearOnBranchSwitch: this._clearOnBranchSwitch, quoteRotationInterval: this._quoteRotationInterval, useDiffEditor: this._useDiffEditor };
+  }
+
   setIgnorePatterns(patterns: string[]): void {
     this._ignorePatterns = patterns;
     if (this._enabled && this._git) {
-      this._git.saveSettings({ ignorePatterns: patterns, respectGitignore: this._respectGitignore, clearOnBranchSwitch: this._clearOnBranchSwitch, quoteRotationInterval: this._quoteRotationInterval });
+      this._git.saveSettings({ ...this.currentSettings(), ignorePatterns: patterns });
     }
   }
 
   setRespectGitignore(value: boolean): void {
     this._respectGitignore = value;
     if (this._enabled && this._git) {
-      this._git.saveSettings({ ignorePatterns: this._ignorePatterns, respectGitignore: value, clearOnBranchSwitch: this._clearOnBranchSwitch, quoteRotationInterval: this._quoteRotationInterval });
+      this._git.saveSettings({ ...this.currentSettings(), respectGitignore: value });
     }
   }
 
   setClearOnBranchSwitch(value: boolean): void {
     this._clearOnBranchSwitch = value;
     if (this._enabled && this._git) {
-      this._git.saveSettings({ ignorePatterns: this._ignorePatterns, respectGitignore: this._respectGitignore, clearOnBranchSwitch: value, quoteRotationInterval: this._quoteRotationInterval });
+      this._git.saveSettings({ ...this.currentSettings(), clearOnBranchSwitch: value });
     }
   }
 
@@ -279,7 +287,14 @@ export class StateManager {
     const normalized = (Number.isFinite(value) && value >= 0) ? Math.floor(value) : 0;
     this._quoteRotationInterval = normalized;
     if (this._enabled && this._git) {
-      this._git.saveSettings({ ignorePatterns: this._ignorePatterns, respectGitignore: this._respectGitignore, clearOnBranchSwitch: this._clearOnBranchSwitch, quoteRotationInterval: normalized });
+      this._git.saveSettings({ ...this.currentSettings(), quoteRotationInterval: normalized });
+    }
+  }
+
+  setUseDiffEditor(value: boolean): void {
+    this._useDiffEditor = value;
+    if (this._enabled && this._git) {
+      this._git.saveSettings({ ...this.currentSettings(), useDiffEditor: value });
     }
   }
 
@@ -294,6 +309,7 @@ export class StateManager {
     this._respectGitignore = settings.respectGitignore;
     this._clearOnBranchSwitch = settings.clearOnBranchSwitch;
     this._quoteRotationInterval = settings.quoteRotationInterval;
+    this._useDiffEditor = settings.useDiffEditor;
     return this._ignorePatterns;
   }
 
@@ -460,6 +476,7 @@ export class StateManager {
   resetToDisabled(): void {
     this._enabled = false;
     this._ignorePatterns = [...DEFAULT_IGNORE_PATTERNS];
+    this._useDiffEditor = false;
     this.state.clear();
     this._git = undefined;
     this.gitQueue = Promise.resolve();

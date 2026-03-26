@@ -169,17 +169,23 @@ export function acceptHunk(
   stateManager: StateManager,
   filePath: string,
   id: string,
-  onStateChanged: () => void
+  onStateChanged: () => void,
+  source: string = 'unknown'
 ): void {
-  const fileState = stateManager.getFile(filePath);
-  if (!fileState) return;
+  const basename = path.basename(filePath);
+  log(`acceptHunk(${basename}): hunkId=${id}, source=${source}`);
 
-  const doc = vscode.workspace.textDocuments.find(d => d.uri.fsPath === filePath);
-  if (!doc) return;
+  const fileState = stateManager.getFile(filePath);
+  if (!fileState) { log(`acceptHunk(${basename}): no fileState, skip`); return; }
+
+  const doc = vscode.workspace.textDocuments.find(d => d.uri.scheme === 'file' && d.uri.fsPath === filePath);
+  if (!doc) { log(`acceptHunk(${basename}): no doc found, skip`); return; }
+  log(`acceptHunk(${basename}): doc.scheme=${doc.uri.scheme}, doc.len=${doc.getText().length}, baseline.len=${fileState.baseline.length}`);
 
   const hunks = computeHunks(fileState.baseline, doc.getText());
+  log(`acceptHunk(${basename}): total hunks=${hunks.length}`);
   const hunk = hunks.find(h => hunkId(h) === id);
-  if (!hunk) return;
+  if (!hunk) { log(`acceptHunk(${basename}): hunk not found, skip`); return; }
 
   const originalNewStart = hunk.newStart;
 
@@ -193,15 +199,16 @@ export function acceptHunk(
 
   fileState.baseline = newBaseline;
   const remainingHunks = computeHunks(newBaseline, doc.getText());
+  log(`acceptHunk(${basename}): remainingHunks=${remainingHunks.length}`);
   if (remainingHunks.length === 0) {
-    // Last hunk accepted — exit reviewing and snapshot final content
+    log(`acceptHunk(${basename}): last hunk, exitReviewing`);
     stateManager.exitReviewing(filePath, doc.getText());
   } else {
-    // More hunks remain — update in-memory state and snapshot intermediate baseline
     stateManager.setFile(filePath, fileState);
     revealNextHunk(filePath, remainingHunks, originalNewStart);
   }
   onStateChanged();
+  log(`acceptHunk(${basename}): done`);
 }
 
 /** Reveal the next hunk in the editor after an accept/discard operation. */
@@ -223,16 +230,22 @@ export async function discardHunk(
   fileWatcher: FileWatcher,
   filePath: string,
   id: string,
-  onStateChanged: () => void
+  onStateChanged: () => void,
+  source: string = 'unknown'
 ): Promise<void> {
+  const basename = path.basename(filePath);
+  log(`discardHunk(${basename}): hunkId=${id}, source=${source}`);
+
   const fileState = stateManager.getFile(filePath);
-  if (!fileState) return;
+  if (!fileState) { log(`discardHunk(${basename}): no fileState, skip`); return; }
 
   const uri = vscode.Uri.file(filePath);
   const doc = await vscode.workspace.openTextDocument(uri);
 
-  const hunk = computeHunks(fileState.baseline, doc.getText()).find(h => hunkId(h) === id);
-  if (!hunk) return;
+  const allHunks = computeHunks(fileState.baseline, doc.getText());
+  log(`discardHunk(${basename}): total hunks=${allHunks.length}`);
+  const hunk = allHunks.find(h => hunkId(h) === id);
+  if (!hunk) { log(`discardHunk(${basename}): hunk not found, skip`); return; }
 
   const originalNewStart = hunk.newStart;
 
@@ -251,21 +264,27 @@ export async function discardHunk(
   }
 
   const replacement = originalLines.length > 0 ? originalLines.join('\n') + '\n' : '';
+  log(`discardHunk(${basename}): replacing lines ${startPos.line}-${endPos.line} with ${originalLines.length} original lines`);
 
   fileWatcher.markSelfEdit(filePath);
   try {
     const edit = new vscode.WorkspaceEdit();
     edit.replace(uri, new vscode.Range(startPos, endPos), replacement);
-    await vscode.workspace.applyEdit(edit);
-    const saved = vscode.workspace.textDocuments.find(d => d.uri.fsPath === filePath);
+    const applied = await vscode.workspace.applyEdit(edit);
+    log(`discardHunk(${basename}): applyEdit=${applied}`);
+    const saved = vscode.workspace.textDocuments.find(d => d.uri.scheme === 'file' && d.uri.fsPath === filePath);
     if (saved) await saved.save();
+    log(`discardHunk(${basename}): saved, doc.scheme=${saved?.uri.scheme ?? 'N/A'}, doc.len=${saved?.getText().length ?? 'N/A'}`);
     const remainingHunks = computeHunks(fileState.baseline, saved?.getText() ?? doc.getText());
+    log(`discardHunk(${basename}): remainingHunks=${remainingHunks.length}`);
     if (remainingHunks.length === 0) {
+      log(`discardHunk(${basename}): no hunks left, exitReviewing`);
       stateManager.exitReviewing(filePath);
     } else {
       revealNextHunk(filePath, remainingHunks, originalNewStart);
     }
     onStateChanged();
+    log(`discardHunk(${basename}): done`);
   } finally {
     fileWatcher.clearSelfEdit(filePath);
   }
