@@ -226,7 +226,10 @@ export class ReviewPanel implements vscode.WebviewViewProvider {
         break;
       case 'acceptFile':
         if (msg.filePath) {
-          acceptFileByPath(this.stateManager, msg.filePath, this.onStateChanged);
+          acceptFileByPath(this.stateManager, msg.filePath, () => {
+            this.onStateChanged();
+            void this.onAfterHunkAction?.().catch(err => log(`onAfterHunkAction: ${err}`));
+          });
         }
         break;
       case 'discardFile':

@@ -57,10 +57,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
   async function closeStaleTabs(): Promise<void> {
     for (const group of vscode.window.tabGroups.all) {
       for (const tab of group.tabs) {
-        // Hunkwise diff tab
+        // Hunkwise diff tab (normal file or deleted file)
         if (tab.input instanceof vscode.TabInputTextDiff
           && tab.input.original.scheme === 'hunkwise-baseline') {
-          const filePath = tab.input.modified.fsPath;
+          // For deleted files, modified is untitled:path.deleted; extract real path from original
+          const filePath = tab.input.modified.scheme === 'file'
+            ? tab.input.modified.fsPath
+            : tab.input.original.path;
           const fileState = stateManager.getFile(filePath);
           if (!fileState || fileState.status !== 'reviewing') {
             await vscode.window.tabGroups.close(tab);
