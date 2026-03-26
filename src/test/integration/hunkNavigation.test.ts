@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import * as fs from 'fs';
 import * as path from 'path';
 import assert from 'assert';
 import {
@@ -49,7 +48,8 @@ suite('hunkwise hunk navigation integration', function () {
     await enableHunkwise();
 
     const rel = path.relative(root, filePath);
-    await waitForCondition(() => gitGetBaseline(root, rel) !== undefined, 5000);
+    // Wait for baseline to match the original content (not just exist)
+    await waitForCondition(() => gitGetBaseline(root, rel) === baseline, 5000);
 
     // Modify to create 3 distinct hunks:
     // - Hunk 1: change line 1-2
@@ -92,23 +92,23 @@ suite('hunkwise hunk navigation integration', function () {
     assert.ok(hunks.length >= 2, `Expected at least 2 hunks, got ${hunks.length}`);
 
     const firstHunkId = hunkId(hunks[0]);
-    const secondHunkNewStart = hunks[1].newStart;
 
     // Accept the first hunk
     acceptHunk(sm, filePath, firstHunkId, () => {});
     await sleep(200);
 
-    // Cursor should have moved to the next hunk's position
-    const cursorLine = editor.selection.active.line;
-    // After accepting hunk 1, the remaining hunks are recomputed.
-    // The cursor should be near the second hunk's area.
-    // We check that cursor moved away from line 0 (top of file).
-    assert.ok(cursorLine > 0, `Cursor should have moved from top of file, but is at line ${cursorLine}`);
-
     // Verify the file still has remaining hunks
     const updatedState = sm.getFile(filePath);
     assert.ok(updatedState, 'File should still be tracked');
     assert.strictEqual(updatedState?.status, 'reviewing', 'File should still be in reviewing state');
+
+    // Recompute hunks and verify cursor is at the start of the next remaining hunk
+    const remainingHunks = computeHunks(updatedState!.baseline, doc.getText());
+    assert.ok(remainingHunks.length >= 1, `Expected remaining hunks, got ${remainingHunks.length}`);
+    const expectedLine = remainingHunks[0].newStart - 1;
+    const cursorLine = editor.selection.active.line;
+    assert.strictEqual(cursorLine, expectedLine,
+      `Cursor should be at line ${expectedLine} (next hunk), but is at line ${cursorLine}`);
   });
 
   test('discardHunk on first hunk jumps cursor to second hunk', async () => {
@@ -132,14 +132,19 @@ suite('hunkwise hunk navigation integration', function () {
     await discardHunk(sm, fw, filePath, firstHunkId, () => {});
     await sleep(200);
 
-    // Cursor should have moved to the next hunk's position
-    const cursorLine = editor.selection.active.line;
-    assert.ok(cursorLine > 0, `Cursor should have moved from top of file, but is at line ${cursorLine}`);
-
     // Verify the file still has remaining hunks
     const updatedState = sm.getFile(filePath);
     assert.ok(updatedState, 'File should still be tracked');
     assert.strictEqual(updatedState?.status, 'reviewing', 'File should still be in reviewing state');
+
+    // Recompute hunks and verify cursor is at the start of the next remaining hunk
+    const updatedDoc = editor.document;
+    const remainingHunks = computeHunks(updatedState!.baseline, updatedDoc.getText());
+    assert.ok(remainingHunks.length >= 1, `Expected remaining hunks, got ${remainingHunks.length}`);
+    const expectedLine = remainingHunks[0].newStart - 1;
+    const cursorLine = editor.selection.active.line;
+    assert.strictEqual(cursorLine, expectedLine,
+      `Cursor should be at line ${expectedLine} (next hunk), but is at line ${cursorLine}`);
   });
 
   test('acceptHunk on last hunk does not jump (exits reviewing)', async () => {
@@ -235,18 +240,23 @@ suite('hunkwise hunk navigation integration', function () {
     assert.ok(hunks.length >= 3, `Expected at least 3 hunks, got ${hunks.length}`);
 
     const middleHunkId = hunkId(hunks[1]);
-    const middleHunkNewStart = hunks[1].newStart;
-    const thirdHunkNewStart = hunks[2].newStart;
 
     // Accept the middle hunk
     acceptHunk(sm, filePath, middleHunkId, () => {});
     await sleep(200);
 
-    // Cursor should be near the third hunk area (which is now the "next" hunk
-    // after the middle one's original position)
+    // Recompute hunks and verify cursor landed on the next remaining hunk
+    // (should be the former third hunk, not the first)
+    const updatedState = sm.getFile(filePath);
+    assert.ok(updatedState, 'File should still be tracked');
+    const remainingHunks = computeHunks(updatedState!.baseline, doc.getText());
+    assert.ok(remainingHunks.length >= 2,
+      `Expected at least 2 remaining hunks, got ${remainingHunks.length}`);
+
+    // The second remaining hunk is the former third hunk — cursor should be there
+    const expectedLine = remainingHunks[1].newStart - 1;
     const cursorLine = editor.selection.active.line;
-    // The cursor should be beyond the middle hunk's original start
-    assert.ok(cursorLine >= middleHunkNewStart - 1,
-      `Cursor (line ${cursorLine}) should be at or after middle hunk start (${middleHunkNewStart - 1})`);
+    assert.strictEqual(cursorLine, expectedLine,
+      `Cursor should be at line ${expectedLine} (next hunk after middle), but is at line ${cursorLine}`);
   });
 });
