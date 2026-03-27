@@ -24,7 +24,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
       provideTextDocumentContent(uri: vscode.Uri): string {
         const filePath = uri.path;
         const fileState = stateManager.getFile(filePath);
-        return fileState?.baseline ?? '';
+        return fileState?.baseline ?? '';  // null baseline → '' for diff display
       },
     })
   );
@@ -86,10 +86,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
   let syncIgnore: () => void;
   const fileWatcher = new FileWatcher(stateManager, onStateChanged, () => syncIgnore());
   syncIgnore = () => stateManager.syncIgnoreState((fp, isDir) => fileWatcher.shouldIgnore(fp, isDir)).then(onStateChanged);
-  // Register watcher early so gitignoreMatcher is initialized before load()
+  // Register watcher early so gitignoreMatcher is initialized before load().
+  // Suppress events during load to avoid race conditions where file changes
+  // fire before state is fully restored from git.
   fileWatcher.register(context);
+  fileWatcher.suppressAll();
 
   await stateManager.load((fp, isDir) => fileWatcher.shouldIgnore(fp, isDir));
+  fileWatcher.resumeAll();
   log(`loaded state: enabled=${stateManager.enabled}, files=${stateManager.getAllFiles().size}`);
 
   decorationManager = new DecorationManager(stateManager, (command, filePath, hId) => {

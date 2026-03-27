@@ -15,8 +15,8 @@ export function hunkId(hunk: ParsedHunk): string {
   return `${hunk.newStart}:${hunk.newLines}:${hunk.oldStart}:${hunk.oldLines}`;
 }
 
-export function computeHunks(baseline: string, current: string): ParsedHunk[] {
-  const changes = Diff.diffLines(baseline, current);
+export function computeHunks(baseline: string | null, current: string): ParsedHunk[] {
+  const changes = Diff.diffLines(baseline ?? '', current);
 
   const hunks: ParsedHunk[] = [];
   let oldLine = 1;

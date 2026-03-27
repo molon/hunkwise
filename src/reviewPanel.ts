@@ -131,10 +131,11 @@ export class ReviewPanel implements vscode.WebviewViewProvider {
       }
 
       const pendingHunks = computeHunks(fileState.baseline, currentContent);
-      if (pendingHunks.length === 0) continue;
+      // Show new files (null baseline) even with 0 hunks (e.g. new empty file)
+      if (pendingHunks.length === 0 && fileState.baseline !== null) continue;
 
-      const isNew = fileState.baseline === '' && currentContent !== '';
-      const isDeleted = !fileExists && fileState.baseline !== '';
+      const isNew = fileState.baseline === null;
+      const isDeleted = !fileExists && fileState.baseline !== null;
 
       const addedLines = pendingHunks.reduce((s, h) => s + h.newLines, 0);
       const removedLines = pendingHunks.reduce((s, h) => s + h.oldLines, 0);
