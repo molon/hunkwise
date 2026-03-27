@@ -3,7 +3,7 @@
 const vscode = /** @type {any} */ (globalThis).acquireVsCodeApi();
 const app = document.getElementById('app');
 
-/** @type {{ enabled: boolean, ignorePatterns: string[], respectGitignore: boolean, clearOnBranchSwitch: boolean, quoteRotationInterval: number, totalFiles: number, totalAdded: number, totalRemoved: number, files: any[] } | null} */
+/** @type {{ enabled: boolean, ignorePatterns: string[], respectGitignore: boolean, clearOnBranchSwitch: boolean, quoteRotationInterval: number, useDiffEditor: boolean, showInlineDecorations: boolean, totalFiles: number, totalAdded: number, totalRemoved: number, files: any[] } | null} */
 let currentState = null;
 /** @type {Set<string>} */
 const expandedFiles = new Set();
@@ -121,7 +121,7 @@ function appendIcon(parent) {
 }
 
 /**
- * @param {{ enabled: boolean, ignorePatterns: string[], respectGitignore: boolean, clearOnBranchSwitch: boolean, quoteRotationInterval: number, totalFiles: number, totalAdded: number, totalRemoved: number, files: any[] }} state
+ * @param {{ enabled: boolean, ignorePatterns: string[], respectGitignore: boolean, clearOnBranchSwitch: boolean, quoteRotationInterval: number, useDiffEditor: boolean, showInlineDecorations: boolean, totalFiles: number, totalAdded: number, totalRemoved: number, files: any[] }} state
  */
 function render(state) {
   if (!app) return;
@@ -196,7 +196,7 @@ function renderIdleScreen(quoteRotationInterval) {
 }
 
 /**
- * @param {{ ignorePatterns: string[], respectGitignore: boolean, clearOnBranchSwitch: boolean, quoteRotationInterval: number }} state
+ * @param {{ ignorePatterns: string[], respectGitignore: boolean, clearOnBranchSwitch: boolean, quoteRotationInterval: number, useDiffEditor: boolean, showInlineDecorations: boolean }} state
  */
 function renderSettingsScreen(state) {
   if (!app) return;
@@ -218,6 +218,8 @@ function renderSettingsScreen(state) {
   gitignoreSection.appendChild(el('div', 'settings-section-title', 'Git Integration'));
 
   const checkRow = el('label', 'settings-check-row');
+  checkRow.appendChild(el('span', 'settings-check-label', 'Respect .gitignore'));
+  const checkDescRow = el('div', 'settings-check-desc-row');
   const checkbox = /** @type {HTMLInputElement} */ (document.createElement('input'));
   checkbox.type = 'checkbox';
   checkbox.className = 'settings-checkbox';
@@ -225,17 +227,15 @@ function renderSettingsScreen(state) {
   checkbox.addEventListener('change', () => {
     vscode.postMessage({ command: 'setRespectGitignore', value: checkbox.checked });
   });
-  const checkLabel = el('span', 'settings-check-label', 'Respect .gitignore');
-  const checkDesc = el('span', 'settings-check-desc', 'Skip files already ignored by your project\'s .gitignore');
-  checkRow.appendChild(checkbox);
-  const checkText = el('div', 'settings-check-text');
-  checkText.appendChild(checkLabel);
-  checkText.appendChild(checkDesc);
-  checkRow.appendChild(checkText);
+  checkDescRow.appendChild(checkbox);
+  checkDescRow.appendChild(el('span', 'settings-check-desc', 'Skip files already ignored by your project\'s .gitignore'));
+  checkRow.appendChild(checkDescRow);
   gitignoreSection.appendChild(checkRow);
 
   // Clear on branch switch
   const branchRow = el('label', 'settings-check-row');
+  branchRow.appendChild(el('span', 'settings-check-label', 'Clear hunks on branch switch'));
+  const branchDescRow = el('div', 'settings-check-desc-row');
   const branchCheckbox = /** @type {HTMLInputElement} */ (document.createElement('input'));
   branchCheckbox.type = 'checkbox';
   branchCheckbox.className = 'settings-checkbox';
@@ -243,13 +243,9 @@ function renderSettingsScreen(state) {
   branchCheckbox.addEventListener('change', () => {
     vscode.postMessage({ command: 'setClearOnBranchSwitch', value: branchCheckbox.checked });
   });
-  const branchLabel = el('span', 'settings-check-label', 'Clear hunks on branch switch');
-  const branchDesc = el('span', 'settings-check-desc', 'Automatically clear pending hunks when you switch branches');
-  const branchText = el('div', 'settings-check-text');
-  branchText.appendChild(branchLabel);
-  branchText.appendChild(branchDesc);
-  branchRow.appendChild(branchCheckbox);
-  branchRow.appendChild(branchText);
+  branchDescRow.appendChild(branchCheckbox);
+  branchDescRow.appendChild(el('span', 'settings-check-desc', 'Automatically clear pending hunks when you switch branches'));
+  branchRow.appendChild(branchDescRow);
   gitignoreSection.appendChild(branchRow);
 
   // ── Appearance ──
@@ -263,7 +259,7 @@ function renderSettingsScreen(state) {
   rotationRow.appendChild(rotationLabel);
   const rotationInput = /** @type {HTMLInputElement} */ (document.createElement('input'));
   rotationInput.type = 'number';
-  rotationInput.className = 'pattern-input settings-number-input';
+  rotationInput.className = 'settings-number-input';
   rotationInput.min = '0';
   rotationInput.value = String(state.quoteRotationInterval);
   rotationInput.addEventListener('change', () => {
@@ -273,6 +269,38 @@ function renderSettingsScreen(state) {
     }
   });
   rotationRow.appendChild(rotationInput);
+
+  // Show inline decorations
+  const inlineDecRow = el('label', 'settings-check-row');
+  inlineDecRow.appendChild(el('span', 'settings-check-label', 'Show inline decorations'));
+  const inlineDecDescRow = el('div', 'settings-check-desc-row');
+  const inlineDecCheckbox = /** @type {HTMLInputElement} */ (document.createElement('input'));
+  inlineDecCheckbox.type = 'checkbox';
+  inlineDecCheckbox.className = 'settings-checkbox';
+  inlineDecCheckbox.checked = state.showInlineDecorations;
+  inlineDecCheckbox.addEventListener('change', () => {
+    vscode.postMessage({ command: 'setShowInlineDecorations', value: inlineDecCheckbox.checked });
+  });
+  inlineDecDescRow.appendChild(inlineDecCheckbox);
+  inlineDecDescRow.appendChild(el('span', 'settings-check-desc', 'Show Accept/Discard buttons and diff highlights inline in the editor'));
+  inlineDecRow.appendChild(inlineDecDescRow);
+  appearanceSection.appendChild(inlineDecRow);
+
+  // Open diff editor from panel
+  const diffEditorRow = el('label', 'settings-check-row');
+  diffEditorRow.appendChild(el('span', 'settings-check-label', 'Open diff editor from panel'));
+  const diffEditorDescRow = el('div', 'settings-check-desc-row');
+  const diffEditorCheckbox = /** @type {HTMLInputElement} */ (document.createElement('input'));
+  diffEditorCheckbox.type = 'checkbox';
+  diffEditorCheckbox.className = 'settings-checkbox';
+  diffEditorCheckbox.checked = state.useDiffEditor;
+  diffEditorCheckbox.addEventListener('change', () => {
+    vscode.postMessage({ command: 'setUseDiffEditor', value: diffEditorCheckbox.checked });
+  });
+  diffEditorDescRow.appendChild(diffEditorCheckbox);
+  diffEditorDescRow.appendChild(el('span', 'settings-check-desc', 'Clicking files or hunks in the panel opens a diff view (baseline vs current) instead of the inline editor'));
+  diffEditorRow.appendChild(diffEditorDescRow);
+  appearanceSection.appendChild(diffEditorRow);
   appearanceSection.appendChild(rotationRow);
 
   // ── Exclude Patterns ──
@@ -322,9 +350,9 @@ function renderSettingsScreen(state) {
   addRow.appendChild(addBtn);
   patternList.appendChild(addRow);
   patternSection.appendChild(patternList);
+  body.appendChild(appearanceSection);
   body.appendChild(patternSection);
   body.appendChild(gitignoreSection);
-  body.appendChild(appearanceSection);
 
   // ── Disable ──
   const disableSection = el('div', 'settings-section settings-section-danger');

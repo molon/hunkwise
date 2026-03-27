@@ -115,8 +115,9 @@ export class DecorationManager {
 
   refresh(editors?: readonly vscode.TextEditor[]): void {
     const targets = editors ?? vscode.window.visibleTextEditors;
+    const diffPaths = this.diffEditorFilePaths();
     for (const editor of targets) {
-      this.applyToEditor(editor);
+      this.applyToEditor(editor, diffPaths);
     }
   }
 
@@ -130,12 +131,31 @@ export class DecorationManager {
     }
   }
 
-  private applyToEditor(editor: vscode.TextEditor): void {
+  /**
+   * Collect file paths that are open in any diff tab (git, hunkwise, etc.).
+   */
+  private diffEditorFilePaths(): Set<string> {
+    const paths = new Set<string>();
+    for (const group of vscode.window.tabGroups.all) {
+      for (const tab of group.tabs) {
+        if (tab.input instanceof vscode.TabInputTextDiff) {
+          paths.add(tab.input.modified.fsPath);
+        }
+      }
+    }
+    return paths;
+  }
+
+  private applyToEditor(editor: vscode.TextEditor, diffPaths: Set<string>): void {
     const filePath = editor.document.uri.fsPath;
     const editorKey = editor.document.uri.toString();
     const fileState = this.stateManager.getFile(filePath);
 
-    if (!fileState || fileState.status !== 'reviewing') {
+    // Skip insets: in diff editors (viewColumn undefined), or when user disabled inline decorations
+    const isInDiff = editor.viewColumn === undefined && diffPaths.has(filePath);
+    const skipInsets = isInDiff || !this.stateManager.showInlineDecorations;
+
+    if (!fileState || fileState.status !== 'reviewing' || skipInsets) {
       this.disposeInsetList(this.insets.get(editorKey) ?? []);
       this.insets.delete(editorKey);
       editor.setDecorations(addedLineDecoration, []);
@@ -287,7 +307,7 @@ export class DecorationManager {
           const targetEditor = vscode.window.visibleTextEditors.find(
             e => e.document.uri.toString() === editorKey
           );
-          if (targetEditor) this.applyToEditor(targetEditor);
+          if (targetEditor) this.applyToEditor(targetEditor, this.diffEditorFilePaths());
         }),
       };
       return entry;
