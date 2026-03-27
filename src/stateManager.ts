@@ -207,19 +207,27 @@ export class StateManager {
   }
 
   setFile(filePath: string, state: FileState, skipSnapshot?: boolean): void {
+    const oldState = this.state.get(filePath);
     this.state.set(filePath, state);
-    if (!skipSnapshot && this._git) {
+    if (!skipSnapshot && this._git && state.baseline !== null) {
       const g = this._git;
       const baseline = state.baseline;
-      this.gitQueue = this.gitQueue.then(() => g.snapshot(filePath, baseline)).catch(err => { log(`git queue error: ${err}`); });
+      this.gitQueue = this.gitQueue.then(() => g.snapshot(filePath, baseline)).catch(err => {
+        log(`git queue error (setFile rollback): ${err}`);
+        if (oldState) { this.state.set(filePath, oldState); } else { this.state.delete(filePath); }
+      });
     }
   }
 
   removeFile(filePath: string): void {
+    const oldState = this.state.get(filePath);
     this.state.delete(filePath);
     if (this._git) {
       const g = this._git;
-      this.gitQueue = this.gitQueue.then(() => g.removeFile(filePath)).catch(err => { log(`git queue error: ${err}`); });
+      this.gitQueue = this.gitQueue.then(() => g.removeFile(filePath)).catch(err => {
+        log(`git queue error (removeFile rollback): ${err}`);
+        if (oldState) { this.state.set(filePath, oldState); }
+      });
     }
   }
 
@@ -231,7 +239,12 @@ export class StateManager {
     }
     if (this._git) {
       const g = this._git;
-      this.gitQueue = this.gitQueue.then(() => g.renameFile(oldFilePath, newFilePath)).catch(err => { log(`git queue error: ${err}`); });
+      this.gitQueue = this.gitQueue.then(() => g.renameFile(oldFilePath, newFilePath)).catch(err => {
+        log(`git queue error (renameFile rollback): ${err}`);
+        // Rollback in-memory state
+        this.state.delete(newFilePath);
+        if (fileState) { this.state.set(oldFilePath, fileState); }
+      });
     }
   }
 
@@ -259,9 +272,9 @@ export class StateManager {
    * If newBaseline is provided, update the baseline in git (e.g. after accept).
    * If omitted, the existing baseline is already correct (e.g. hunks resolved to 0, or discard).
    */
-  exitReviewing(filePath: string, newBaseline?: string): void {
+  exitReviewing(filePath: string, newBaseline?: string | null): void {
     this.state.delete(filePath);
-    if (newBaseline !== undefined) {
+    if (newBaseline !== undefined && newBaseline !== null) {
       this.snapshotFile(filePath, newBaseline);
     }
   }
@@ -538,7 +551,7 @@ export class StateManager {
     await Promise.all(diskFiles.map(async fp => {
       try {
         const content = await fs.promises.readFile(fp, 'utf-8');
-        if (content.length > 0) batch.push({ filePath: fp, content });
+        batch.push({ filePath: fp, content });
       } catch { /* skip unreadable */ }
     }));
 
