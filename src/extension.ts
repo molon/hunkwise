@@ -92,9 +92,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
   fileWatcher.register(context);
   fileWatcher.suppressAll();
 
-  await stateManager.load((fp, isDir) => fileWatcher.shouldIgnore(fp, isDir));
-  fileWatcher.resumeAll();
-  log(`loaded state: enabled=${stateManager.enabled}, files=${stateManager.getAllFiles().size}`);
+  try {
+    await stateManager.load((fp, isDir) => fileWatcher.shouldIgnore(fp, isDir));
+    log(`loaded state: enabled=${stateManager.enabled}, files=${stateManager.getAllFiles().size}`);
+  } finally {
+    fileWatcher.resumeAll();
+  }
 
   decorationManager = new DecorationManager(stateManager, (command, filePath, hId) => {
     if (command === 'accept') {

@@ -199,6 +199,7 @@ export class HunkwiseGit {
       await this.commit();
     } catch (err) {
       this.log(`snapshot failed for ${rel}: ${err}`);
+      throw err;
     }
   }
 
@@ -220,6 +221,7 @@ export class HunkwiseGit {
       await this.commit();
     } catch (err) {
       this.log(`renameFile failed (${path.relative(this.workTree, oldFilePath)} → ${path.relative(this.workTree, newFilePath)}): ${err}`);
+      throw err;
     }
   }
 
@@ -234,6 +236,7 @@ export class HunkwiseGit {
       await this.commit();
     } catch (err) {
       this.log(`removeFile failed for ${rel}: ${err}`);
+      throw err;
     }
   }
 
