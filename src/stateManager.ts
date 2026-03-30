@@ -227,7 +227,9 @@ export class StateManager {
     // Clone old state so the rollback has an independent snapshot
     const oldState = this.state.has(filePath) ? { ...this.state.get(filePath)! } : undefined;
     this.state.delete(filePath);
-    if (this._git) {
+    // Only queue git removal when the file was previously tracked (non-null baseline).
+    // null-baseline files were never stored in the hunkwise git index.
+    if (this._git && oldState != null && oldState.baseline !== null) {
       const g = this._git;
       this.gitQueue = this.gitQueue.then(() => g.removeFile(filePath)).catch(err => {
         log(`git queue error (removeFile rollback): ${err}`);

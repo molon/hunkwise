@@ -232,6 +232,8 @@ export class HunkwiseGit {
     await this.initGit();
     const rel = path.relative(this.workTree, filePath);
     try {
+      const lsOut = await this.git(['ls-files', '--stage', '--', rel]);
+      if (!lsOut.trim()) return; // not tracked — nothing to remove
       await this.git(['update-index', '--force-remove', '--', rel]);
       await this.commit();
     } catch (err) {

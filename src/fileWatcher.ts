@@ -328,10 +328,10 @@ export class FileWatcher {
     // External tool deleted the file — always produce a hunk
     if (!git) { log(`onDiskDelete(${basename}): no git, skip`); return; }
 
-    // If file was new (null baseline), just clean up — nothing to show
+    // If file was new (null baseline), just clean up — nothing to show, nothing in git
     if (fileState?.baseline === null) {
       log(`onDiskDelete(${basename}): new file (null baseline) deleted, removing fileState`);
-      this.stateManager.removeFile(filePath);
+      this.stateManager.exitReviewing(filePath);
       this.onStateChanged();
       return;
     }
