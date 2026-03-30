@@ -207,26 +207,34 @@ export class StateManager {
   }
 
   setFile(filePath: string, state: FileState, skipSnapshot?: boolean): void {
-    const oldState = this.state.get(filePath);
+    // Clone old state so callers mutating the FileState object don't corrupt the rollback snapshot
+    const oldState = this.state.has(filePath) ? { ...this.state.get(filePath)! } : undefined;
     this.state.set(filePath, state);
     if (!skipSnapshot && this._git && state.baseline !== null) {
       const g = this._git;
       const baseline = state.baseline;
       this.gitQueue = this.gitQueue.then(() => g.snapshot(filePath, baseline)).catch(err => {
         log(`git queue error (setFile rollback): ${err}`);
-        if (oldState) { this.state.set(filePath, oldState); } else { this.state.delete(filePath); }
+        // Only rollback if this exact state object is still current (no newer operation has updated it)
+        if (this.state.get(filePath) === state) {
+          if (oldState) { this.state.set(filePath, oldState); } else { this.state.delete(filePath); }
+        }
       });
     }
   }
 
   removeFile(filePath: string): void {
-    const oldState = this.state.get(filePath);
+    // Clone old state so the rollback has an independent snapshot
+    const oldState = this.state.has(filePath) ? { ...this.state.get(filePath)! } : undefined;
     this.state.delete(filePath);
     if (this._git) {
       const g = this._git;
       this.gitQueue = this.gitQueue.then(() => g.removeFile(filePath)).catch(err => {
         log(`git queue error (removeFile rollback): ${err}`);
-        if (oldState) { this.state.set(filePath, oldState); }
+        // Only rollback if no newer operation has re-added the entry
+        if (!this.state.has(filePath) && oldState) {
+          this.state.set(filePath, { ...oldState });
+        }
       });
     }
   }
@@ -241,9 +249,11 @@ export class StateManager {
       const g = this._git;
       this.gitQueue = this.gitQueue.then(() => g.renameFile(oldFilePath, newFilePath)).catch(err => {
         log(`git queue error (renameFile rollback): ${err}`);
-        // Rollback in-memory state
-        this.state.delete(newFilePath);
-        if (fileState) { this.state.set(oldFilePath, fileState); }
+        // Only rollback if state still reflects this exact rename (no newer operation has changed either path)
+        if (fileState && this.state.get(newFilePath) === fileState && !this.state.has(oldFilePath)) {
+          this.state.delete(newFilePath);
+          this.state.set(oldFilePath, fileState);
+        }
       });
     }
   }

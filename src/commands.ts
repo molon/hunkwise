@@ -212,14 +212,13 @@ export function acceptHunk(
     ...baselineLines.slice(hunk.oldStart - 1 + hunk.oldLines),
   ].join('\n');
 
-  fileState.baseline = newBaseline;
   const remainingHunks = computeHunks(newBaseline, doc.getText());
   log(`acceptHunk(${basename}): remainingHunks=${remainingHunks.length}`);
   if (remainingHunks.length === 0) {
     log(`acceptHunk(${basename}): last hunk, exitReviewing`);
     stateManager.exitReviewing(filePath, doc.getText());
   } else {
-    stateManager.setFile(filePath, fileState);
+    stateManager.setFile(filePath, { status: 'reviewing', baseline: newBaseline });
     revealNextHunk(filePath, remainingHunks, originalNewStart);
   }
   onStateChanged();
