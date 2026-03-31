@@ -349,35 +349,33 @@ suite('hunkwise delete & restore integration', function () {
     await waitForCondition(() => gitGetBaseline(root, rel) !== undefined, 5000);
     assert.strictEqual(gitGetBaseline(root, rel), 'will be deleted\n');
 
-    // Suppress FileWatcher before deleting — prevents async onDiskDelete from
-    // racing with our manual state manipulation below.
     const fw = getFileWatcher();
     assert.ok(fw, 'FileWatcher should be available');
-    fw.suppressAll();
-
-    // Delete the file while FileWatcher is suppressed
-    fs.unlinkSync(filePath);
-    assert.ok(!fs.existsSync(filePath), 'File should be gone from disk');
-
-    // Simulate restart: clear in-memory state, then call load()
-    // (disable would destroy the git dir, so we directly manipulate StateManager)
     const sm = getStateManager();
     assert.ok(sm, 'StateManager should be available');
 
-    // Drain any pending git ops queued before suppress
-    await sm.flush();
+    // Suppress FileWatcher before deleting — prevents async onDiskDelete from
+    // racing with our manual state manipulation below.
+    fw.suppressAll();
+    try {
+      // Delete the file while FileWatcher is suppressed
+      fs.unlinkSync(filePath);
+      assert.ok(!fs.existsSync(filePath), 'File should be gone from disk');
 
-    // Clear in-memory state to simulate fresh start — baselines remain in git
-    for (const fp of Array.from(sm.getAllFiles().keys())) {
-      (sm as any).state?.delete(fp);  // Access internal state map
+      // Drain any pending git ops queued before suppress
+      await sm.flush();
+
+      // Clear in-memory state to simulate fresh start — baselines remain in git.
+      // Uses internal state map directly because there is no public clear-without-git API;
+      // rebuildState() does the same via this.state.clear().
+      (sm as any).state.clear();
+      assert.ok(!sm.getFile(filePath), 'File should be cleared from memory');
+
+      // Call load() with shouldIgnore matching production activation
+      await sm.load((fp: string, isDir?: boolean) => fw.shouldIgnore(fp, isDir));
+    } finally {
+      fw.resumeAll();
     }
-    assert.ok(!sm.getFile(filePath), 'File should be cleared from memory');
-
-    // Call load() to restore state from git — should detect deleted file
-    await sm.load();
-
-    // Resume FileWatcher for subsequent operations (e.g. discard)
-    fw.resumeAll();
 
     const fileState = sm.getFile(filePath);
     assert.ok(fileState, 'Deleted file should be in state map after load');
