@@ -106,14 +106,18 @@ export class StateManager {
         skippedNoBaseline.push(filePath);
         return;
       }
-      // Compare baseline with current disk content — only enter reviewing if there's a real diff
+      // Compare baseline with current disk content — enter reviewing if there's a real diff
+      // or if the file has been deleted (so the user can restore it via discard).
+      const fileExists = fs.existsSync(filePath);
       let diskContent: string | undefined;
-      try { diskContent = await fs.promises.readFile(filePath, 'utf-8'); } catch { /* file deleted or unreadable */ }
-      if (diskContent !== undefined && diskContent !== baseline) {
+      if (fileExists) {
+        try { diskContent = await fs.promises.readFile(filePath, 'utf-8'); } catch { /* unreadable */ }
+      }
+      if (!fileExists || (diskContent !== undefined && diskContent !== baseline)) {
         this.state.set(filePath, { status: 'reviewing', baseline });
         reviewing.push(filePath);
       } else {
-        // No diff (or file deleted) — baseline is stored in git, no need to set reviewing
+        // File exists and matches baseline (or is unreadable) — no diff to show
         idle.push(filePath);
       }
     }));
@@ -163,9 +167,12 @@ export class StateManager {
     await Promise.all(filtered.map(async filePath => {
       const baseline = await g.getBaseline(filePath);
       if (baseline === undefined) return;
+      const fileExists = fs.existsSync(filePath);
       let diskContent: string | undefined;
-      try { diskContent = await fs.promises.readFile(filePath, 'utf-8'); } catch { /* deleted or unreadable */ }
-      if (diskContent !== undefined && diskContent !== baseline) {
+      if (fileExists) {
+        try { diskContent = await fs.promises.readFile(filePath, 'utf-8'); } catch { /* unreadable */ }
+      }
+      if (!fileExists || (diskContent !== undefined && diskContent !== baseline)) {
         this.state.set(filePath, { status: 'reviewing', baseline });
       }
     }));
