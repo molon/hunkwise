@@ -285,9 +285,20 @@ export class StateManager {
    * If omitted, the existing baseline is already correct (e.g. hunks resolved to 0, or discard).
    */
   exitReviewing(filePath: string, newBaseline?: string | null): void {
+    const oldState = this.state.has(filePath) ? { ...this.state.get(filePath)! } : undefined;
     this.state.delete(filePath);
     if (newBaseline !== undefined && newBaseline !== null) {
-      this.snapshotFile(filePath, newBaseline);
+      if (this._git) {
+        const g = this._git;
+        const baseline = newBaseline;
+        this.gitQueue = this.gitQueue.then(() => g.snapshot(filePath, baseline)).catch(err => {
+          log(`git queue error (exitReviewing rollback): ${err}`);
+          // Restore reviewing state so the user can retry rather than silently getting a stale baseline
+          if (!this.state.has(filePath) && oldState) {
+            this.state.set(filePath, { ...oldState });
+          }
+        });
+      }
     }
   }
 
