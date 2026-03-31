@@ -430,10 +430,10 @@ export class FileWatcher {
 
   private enterReviewing(filePath: string, baseline: string | null, current: string): void {
     const hunks = computeHunks(baseline, current);
-    // Allow 0-hunk entry for new files (baseline===null) — e.g. new empty file
-    if (hunks.length === 0 && baseline !== null) return;
     const isNew = baseline === null;
     const isDeleted = current === '' && baseline !== null;
+    // Allow 0-hunk entry for new files (null baseline) and deleted files (file gone, nothing to diff)
+    if (hunks.length === 0 && !isNew && !isDeleted) return;
     const tag = isNew ? ' (new)' : isDeleted ? ' (deleted)' : '';
     log(`reviewing: ${path.basename(filePath)}${tag}`);
     this.stateManager.setFile(filePath, { status: 'reviewing', baseline });
