@@ -84,7 +84,7 @@ suite('hunkwise diff editor integration', function () {
     assert.ok(fileState);
 
     // Open a hunkwise diff to ensure hunkwise-baseline document exists in textDocuments
-    const baselineUri = vscode.Uri.from({ scheme: 'hunkwise-baseline', path: filePath });
+    const baselineUri = vscode.Uri.file(filePath).with({ scheme: 'hunkwise-baseline' });
     const currentUri = vscode.Uri.file(filePath);
     await vscode.commands.executeCommand('vscode.diff', baselineUri, currentUri, 'test diff');
     await sleep(500);
@@ -119,7 +119,7 @@ suite('hunkwise diff editor integration', function () {
     const fileState = sm.getFile(filePath)!;
 
     // Open hunkwise diff tab
-    const baselineUri = vscode.Uri.from({ scheme: 'hunkwise-baseline', path: filePath });
+    const baselineUri = vscode.Uri.file(filePath).with({ scheme: 'hunkwise-baseline' });
     const currentUri = vscode.Uri.file(filePath);
     await vscode.commands.executeCommand('vscode.diff', baselineUri, currentUri, 'test diff');
     await sleep(500);

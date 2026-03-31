@@ -14,6 +14,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
   const ext = vscode.extensions.getExtension('molon.hunkwise');
   log(`activate v${ext?.packageJSON?.version ?? '?'}`);
   const stateManager = new StateManager();
+  stateManager.onRollback = () => onStateChanged();
 
   // Content provider for showing baselines in diff view
   const baselineChangeEmitter = new vscode.EventEmitter<vscode.Uri>();
@@ -22,9 +23,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
     vscode.workspace.registerTextDocumentContentProvider('hunkwise-baseline', {
       onDidChange: baselineChangeEmitter.event,
       provideTextDocumentContent(uri: vscode.Uri): string {
-        const filePath = uri.path;
+        const filePath = uri.fsPath;
         const fileState = stateManager.getFile(filePath);
-        return fileState?.baseline ?? '';
+        return fileState?.baseline ?? '';  // null baseline → '' for diff display
       },
     })
   );
@@ -42,7 +43,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
 
   /** Notify the diff editor that a specific file's baseline changed (only after accept). */
   function fireBaselineChange(filePath: string): void {
-    baselineChangeEmitter.fire(vscode.Uri.from({ scheme: 'hunkwise-baseline', path: filePath }));
+    baselineChangeEmitter.fire(vscode.Uri.file(filePath).with({ scheme: 'hunkwise-baseline' }));
   }
 
   /**
@@ -59,7 +60,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
           // For deleted files, modified is untitled:path.deleted; extract real path from original
           const filePath = tab.input.modified.scheme === 'file'
             ? tab.input.modified.fsPath
-            : tab.input.original.path;
+            : tab.input.original.fsPath;
           const fileState = stateManager.getFile(filePath);
           if (!fileState || fileState.status !== 'reviewing') {
             await vscode.window.tabGroups.close(tab);
@@ -86,11 +87,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
   let syncIgnore: () => void;
   const fileWatcher = new FileWatcher(stateManager, onStateChanged, () => syncIgnore());
   syncIgnore = () => stateManager.syncIgnoreState((fp, isDir) => fileWatcher.shouldIgnore(fp, isDir)).then(onStateChanged);
-  // Register watcher early so gitignoreMatcher is initialized before load()
+  // Register watcher early so gitignoreMatcher is initialized before load().
+  // Suppress events during load to avoid race conditions where file changes
+  // fire before state is fully restored from git.
   fileWatcher.register(context);
+  fileWatcher.suppressAll();
 
-  await stateManager.load((fp, isDir) => fileWatcher.shouldIgnore(fp, isDir));
-  log(`loaded state: enabled=${stateManager.enabled}, files=${stateManager.getAllFiles().size}`);
+  try {
+    await stateManager.load((fp, isDir) => fileWatcher.shouldIgnore(fp, isDir));
+    log(`loaded state: enabled=${stateManager.enabled}, files=${stateManager.getAllFiles().size}`);
+  } finally {
+    fileWatcher.resumeAll();
+  }
 
   decorationManager = new DecorationManager(stateManager, (command, filePath, hId) => {
     if (command === 'accept') {
