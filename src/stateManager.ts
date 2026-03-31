@@ -32,6 +32,11 @@ export class StateManager {
   // Serial queue: git ops run one at a time; flush() awaits the tail
   private gitQueue: Promise<void> = Promise.resolve();
 
+  // Optional callback invoked when a git failure causes an in-memory rollback
+  // (e.g. exitReviewing snapshot fails and reviewing state is restored).
+  // Set by the extension to trigger UI refresh after unexpected state restoration.
+  onRollback: (() => void) | undefined;
+
   constructor() {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (workspaceFolders && workspaceFolders.length > 0) {
@@ -298,6 +303,10 @@ export class StateManager {
           // Restore reviewing state so the user can retry rather than silently getting a stale baseline
           if (!this.state.has(filePath) && oldState) {
             this.state.set(filePath, { ...oldState });
+            this.onRollback?.();
+            void vscode.window.showErrorMessage(
+              `Failed to update review baseline for ${path.basename(filePath)}. The file has been kept in reviewing so you can retry.`
+            );
           }
         });
       }

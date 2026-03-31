@@ -14,6 +14,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
   const ext = vscode.extensions.getExtension('molon.hunkwise');
   log(`activate v${ext?.packageJSON?.version ?? '?'}`);
   const stateManager = new StateManager();
+  stateManager.onRollback = () => onStateChanged();
 
   // Content provider for showing baselines in diff view
   const baselineChangeEmitter = new vscode.EventEmitter<vscode.Uri>();
