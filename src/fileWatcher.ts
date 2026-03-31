@@ -211,6 +211,8 @@ export class FileWatcher {
   }
 
   shouldIgnore(filePath: string, isDirectory?: boolean): boolean {
+    if (!filePath) return false;
+
     const hunkwiseDir = this.stateManager.dir;
     if (hunkwiseDir && filePath.startsWith(hunkwiseDir + path.sep)) return true;
     if (hunkwiseDir && filePath === hunkwiseDir) return true;
@@ -218,7 +220,23 @@ export class FileWatcher {
     const rootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!rootPath) return false;
 
-    let relPath = path.relative(rootPath, filePath);
+    let relPath = '';
+    try {
+      relPath = vscode.workspace.asRelativePath(vscode.Uri.file(filePath), false) || '';
+    } catch {
+      relPath = '';
+    }
+
+    if (!relPath) {
+      try {
+        relPath = path.relative(rootPath, filePath);
+      } catch {
+        relPath = '';
+      }
+    }
+
+    relPath = relPath.replace(/\\/g, '/');
+    if (!relPath || relPath === '.') return false;
     if (relPath.startsWith('..')) return false;
 
     // The `ignore` library requires a trailing slash to match directory-only
