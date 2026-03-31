@@ -347,9 +347,8 @@ export class FileWatcher {
       }
       return;
     }
-    // gitBaseline is '' (empty file) or has content — show deletion hunk
-    // For empty baseline (''), enterReviewing will compute 0 hunks and skip,
-    // which is correct — no content diff to show for an empty file deletion.
+    // gitBaseline is '' (empty file) or has content — enterReviewing records
+    // this as a deletion (isDeleted=true), which passes the 0-hunk guard too.
     this.enterReviewing(filePath, gitBaseline, '');
   }
 

@@ -30,7 +30,7 @@ Review panel 特殊处理：baseline===null 的文件即使 0 hunks 也显示。
 
 ### 3. Git 失败回滚
 
-`setFile()`, `removeFile()`, `renameFile()` 在 git 操作失败时回滚内存状态到操作前的快照。
+`setFile()`、`removeFile()` 在 git 操作失败时回滚内存状态到操作前的快照；`renameFile()` **不**回滚路径映射——文件已在磁盘上完成重命名，回滚路径会导致内存状态与文件系统不一致，因此仅记录 git 失败日志。
 
 ### 4. Load 阶段竞态修复
 
