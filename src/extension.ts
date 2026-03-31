@@ -23,7 +23,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
     vscode.workspace.registerTextDocumentContentProvider('hunkwise-baseline', {
       onDidChange: baselineChangeEmitter.event,
       provideTextDocumentContent(uri: vscode.Uri): string {
-        const filePath = uri.path;
+        const filePath = uri.fsPath;
         const fileState = stateManager.getFile(filePath);
         return fileState?.baseline ?? '';  // null baseline → '' for diff display
       },
@@ -43,7 +43,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
 
   /** Notify the diff editor that a specific file's baseline changed (only after accept). */
   function fireBaselineChange(filePath: string): void {
-    baselineChangeEmitter.fire(vscode.Uri.from({ scheme: 'hunkwise-baseline', path: filePath }));
+    baselineChangeEmitter.fire(vscode.Uri.file(filePath).with({ scheme: 'hunkwise-baseline' }));
   }
 
   /**
@@ -60,7 +60,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
           // For deleted files, modified is untitled:path.deleted; extract real path from original
           const filePath = tab.input.modified.scheme === 'file'
             ? tab.input.modified.fsPath
-            : tab.input.original.path;
+            : tab.input.original.fsPath;
           const fileState = stateManager.getFile(filePath);
           if (!fileState || fileState.status !== 'reviewing') {
             await vscode.window.tabGroups.close(tab);

@@ -293,7 +293,7 @@ export class ReviewPanel implements vscode.WebviewViewProvider {
       case 'openDeletedDiff':
         if (msg.filePath) {
           const fileName = path.basename(msg.filePath);
-          const baselineUri = vscode.Uri.from({ scheme: 'hunkwise-baseline', path: msg.filePath });
+          const baselineUri = vscode.Uri.file(msg.filePath).with({ scheme: 'hunkwise-baseline' });
           const emptyUri = vscode.Uri.from({ scheme: 'untitled', path: msg.filePath + '.deleted' });
           await vscode.commands.executeCommand('vscode.diff', baselineUri, emptyUri, `${fileName} (deleted)`);
         }
@@ -323,7 +323,7 @@ export class ReviewPanel implements vscode.WebviewViewProvider {
 
   private async openDiffEditor(filePath: string, targetHunkId?: string): Promise<void> {
     const fileName = path.basename(filePath);
-    const baselineUri = vscode.Uri.from({ scheme: 'hunkwise-baseline', path: filePath });
+    const baselineUri = vscode.Uri.file(filePath).with({ scheme: 'hunkwise-baseline' });
     const currentUri = vscode.Uri.file(filePath);
 
     await vscode.commands.executeCommand('vscode.diff', baselineUri, currentUri, `${fileName} (hunkwise)`);
