@@ -223,6 +223,7 @@ export class StateManager {
         // Only rollback if this exact state object is still current (no newer operation has updated it)
         if (this.state.get(filePath) === state) {
           if (oldState) { this.state.set(filePath, oldState); } else { this.state.delete(filePath); }
+          this.onRollback?.();
         }
       });
     }
@@ -241,6 +242,7 @@ export class StateManager {
         // Only rollback if no newer operation has re-added the entry
         if (!this.state.has(filePath) && oldState) {
           this.state.set(filePath, { ...oldState });
+          this.onRollback?.();
         }
       });
     }
@@ -257,12 +259,9 @@ export class StateManager {
     if (this._git && !(fileState && fileState.baseline === null)) {
       const g = this._git;
       this.gitQueue = this.gitQueue.then(() => g.renameFile(oldFilePath, newFilePath)).catch(err => {
-        log(`git queue error (renameFile rollback): ${err}`);
-        // Only rollback if state still reflects this exact rename (no newer operation has changed either path)
-        if (fileState && this.state.get(newFilePath) === fileState && !this.state.has(oldFilePath)) {
-          this.state.delete(newFilePath);
-          this.state.set(oldFilePath, fileState);
-        }
+        // Do not rollback in-memory path mapping: the file has already been renamed on disk,
+        // so reverting to oldFilePath would desync state/UI from the filesystem.
+        log(`git queue error (renameFile): ${err}`);
       });
     }
   }
@@ -288,8 +287,9 @@ export class StateManager {
 
   /**
    * Exit reviewing state without removing the file from git.
-   * If newBaseline is provided, update the baseline in git (e.g. after accept).
-   * If omitted, the existing baseline is already correct (e.g. hunks resolved to 0, or discard).
+   * If newBaseline is provided as a non-null string, update the baseline in git (e.g. after accept).
+   * If omitted or explicitly null, do not snapshot or update the git baseline; the existing baseline
+   * is assumed to already be correct (e.g. hunks resolved to 0, or discard).
    */
   exitReviewing(filePath: string, newBaseline?: string | null): void {
     const oldState = this.state.has(filePath) ? { ...this.state.get(filePath)! } : undefined;
