@@ -247,7 +247,9 @@ export class StateManager {
     if (fileState) {
       this.state.set(newFilePath, fileState);
     }
-    if (this._git) {
+    // Only enqueue a git rename when the file has a non-null baseline (tracked in hunkwise git).
+    // null-baseline files were never stored in the index so renameFile would be a no-op.
+    if (this._git && fileState && fileState.baseline !== null) {
       const g = this._git;
       this.gitQueue = this.gitQueue.then(() => g.renameFile(oldFilePath, newFilePath)).catch(err => {
         log(`git queue error (renameFile rollback): ${err}`);

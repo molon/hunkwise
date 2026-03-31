@@ -325,7 +325,7 @@ export class FileWatcher {
       return;
     }
 
-    // External tool deleted the file — always produce a hunk
+    // External tool deleted the file
     if (!git) { log(`onDiskDelete(${basename}): no git, skip`); return; }
 
     // If file was new (null baseline), just clean up — nothing to show, nothing in git
