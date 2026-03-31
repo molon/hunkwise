@@ -347,8 +347,8 @@ export class FileWatcher {
       }
       return;
     }
-    // gitBaseline is '' (empty file) or has content — enterReviewing records
-    // this as a deletion (isDeleted=true), which passes the 0-hunk guard too.
+    // gitBaseline is '' (empty file) or has content — show as deletion.
+    // enterReviewing will detect isDeleted via !fs.existsSync (file no longer on disk).
     this.enterReviewing(filePath, gitBaseline, '');
   }
 
@@ -430,7 +430,7 @@ export class FileWatcher {
   private enterReviewing(filePath: string, baseline: string | null, current: string): void {
     const hunks = computeHunks(baseline, current);
     const isNew = baseline === null;
-    const isDeleted = current === '' && baseline !== null;
+    const isDeleted = !fs.existsSync(filePath) && baseline !== null;
     // Allow 0-hunk entry for new files (null baseline) and deleted files (file gone, nothing to diff)
     if (hunks.length === 0 && !isNew && !isDeleted) return;
     const tag = isNew ? ' (new)' : isDeleted ? ' (deleted)' : '';
