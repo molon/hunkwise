@@ -358,8 +358,8 @@ suite('hunkwise delete & restore integration', function () {
     const sm = getStateManager();
     assert.ok(sm, 'StateManager should be available');
 
-    // Wait for any pending git ops from the FileWatcher delete handler
-    await sleep(500);
+    // Drain pending git ops from the FileWatcher delete handler
+    await sm.flush();
 
     // Clear in-memory state to simulate fresh start — baselines remain in git
     for (const fp of Array.from(sm.getAllFiles().keys())) {
