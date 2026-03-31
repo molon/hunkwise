@@ -115,7 +115,7 @@ export class StateManager {
         diskContent = await fs.promises.readFile(filePath, 'utf-8');
       } catch (err: any) {
         if (err?.code === 'ENOENT') { fileDeleted = true; } // file doesn't exist
-        // other errors (permissions, binary) → diskContent stays undefined, treat as idle
+        // other errors (e.g. permissions) → diskContent stays undefined, treat as idle
       }
       if (fileDeleted || (diskContent !== undefined && diskContent !== baseline)) {
         this.state.set(filePath, { status: 'reviewing', baseline });

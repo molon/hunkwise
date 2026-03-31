@@ -349,7 +349,13 @@ suite('hunkwise delete & restore integration', function () {
     await waitForCondition(() => gitGetBaseline(root, rel) !== undefined, 5000);
     assert.strictEqual(gitGetBaseline(root, rel), 'will be deleted\n');
 
-    // Delete the file while hunkwise is running
+    // Suppress FileWatcher before deleting — prevents async onDiskDelete from
+    // racing with our manual state manipulation below.
+    const fw = getFileWatcher();
+    assert.ok(fw, 'FileWatcher should be available');
+    fw.suppressAll();
+
+    // Delete the file while FileWatcher is suppressed
     fs.unlinkSync(filePath);
     assert.ok(!fs.existsSync(filePath), 'File should be gone from disk');
 
@@ -358,7 +364,7 @@ suite('hunkwise delete & restore integration', function () {
     const sm = getStateManager();
     assert.ok(sm, 'StateManager should be available');
 
-    // Drain pending git ops from the FileWatcher delete handler
+    // Drain any pending git ops queued before suppress
     await sm.flush();
 
     // Clear in-memory state to simulate fresh start — baselines remain in git
@@ -370,14 +376,15 @@ suite('hunkwise delete & restore integration', function () {
     // Call load() to restore state from git — should detect deleted file
     await sm.load();
 
+    // Resume FileWatcher for subsequent operations (e.g. discard)
+    fw.resumeAll();
+
     const fileState = sm.getFile(filePath);
     assert.ok(fileState, 'Deleted file should be in state map after load');
     assert.strictEqual(fileState?.status, 'reviewing', 'Deleted file should be in reviewing state');
     assert.strictEqual(fileState?.baseline, 'will be deleted\n', 'Baseline should be preserved');
 
     // Verify the file can be restored via discard
-    const fw = getFileWatcher();
-    assert.ok(fw, 'FileWatcher should be available');
     await discardFileByPath(sm, fw, filePath, () => {});
 
     assert.ok(fs.existsSync(filePath), 'File should be restored on disk after discard');
