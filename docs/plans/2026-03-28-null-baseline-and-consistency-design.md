@@ -14,6 +14,7 @@
 - **`string`** = 文件存在且有内容，discard → 恢复原内容
 
 **Git 持久化映射**:
+
 - `baseline === null` → 不存入 git index（文件不在 hunkwise git 中）
 - `baseline === ''` → 存为空 blob
 - `baseline === string` → 存为对应 blob
@@ -39,7 +40,7 @@ Review panel 特殊处理：baseline===null 的文件即使 0 hunks 也显示。
 ## Affected Files
 
 | File | Changes |
-|------|---------|
+| ------ | --------- |
 | `types.ts` | `baseline: string \| null` |
 | `diffEngine.ts` | `computeHunks(baseline: string \| null, current: string)` — null 视为 '' |
 | `stateManager.ts` | null 处理、git 失败回滚、setFile/removeFile/renameFile |
