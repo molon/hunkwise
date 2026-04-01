@@ -6,4 +6,4 @@ When you drag a file from Finder into the VSCode explorer, VSCode may auto-open 
 
 This is a known timing-dependent behavior. There is no reliable VSCode API to distinguish "user created a new file in the editor" from "user dragged an external file into the explorer" — `onWillCreateFiles` fires for both.
 
-**Workaround:** Click the refresh button in the hunkwise panel. The file will be detected as untracked (not in hunkwise git) and re-appear as a new file for review.
+When this happens, the file is silently snapshotted as a baseline in hunkwise git (content matches disk), so it won't appear as "New" even after clicking refresh. There is currently no automatic workaround — the file is treated as if it was always part of the project.
