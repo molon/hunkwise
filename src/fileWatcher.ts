@@ -261,7 +261,7 @@ export class FileWatcher {
     if (this.selfEditFiles.has(filePath)) return;
 
     const fileState = this.stateManager.getFile(filePath);
-    log(`onDiskCreate(${basename}): fileState=${fileState ? `{status:${fileState.status}, baseline.len:${fileState.baseline.length}}` : 'undefined'}`);
+    log(`onDiskCreate(${basename}): fileState=${fileState ? `{status:${fileState.status}, baseline.len:${fileState.baseline?.length ?? 'null'}}` : 'undefined'}`);
     if (fileState?.status === 'reviewing') {
       // File was deleted (showing deletion hunk) but now re-created — recompute
       let diskContent: string;
@@ -271,7 +271,7 @@ export class FileWatcher {
         log(`onDiskCreate(${basename}): read failed while reviewing, skip`);
         return;
       }
-      log(`onDiskCreate(${basename}): reviewing, recompute hunks (baseline.len=${fileState.baseline.length}, disk.len=${diskContent.length})`);
+      log(`onDiskCreate(${basename}): reviewing, recompute hunks (baseline.len=${fileState.baseline?.length ?? 'null'}, disk.len=${diskContent.length})`);
       this.recomputeHunks(filePath, fileState.baseline, diskContent);
       return;
     }
@@ -287,7 +287,6 @@ export class FileWatcher {
       log(`onDiskCreate(${basename}): read failed, skip`);
       return;
     }
-    if (diskContent.length === 0) { log(`onDiskCreate(${basename}): empty file, skip`); return; }
 
     const gitBaseline = await git.getBaseline(filePath);
     log(`onDiskCreate(${basename}): gitBaseline=${gitBaseline !== undefined ? `'${gitBaseline.length} chars'` : 'undefined'}`);
@@ -309,9 +308,9 @@ export class FileWatcher {
       return;
     }
 
-    // External tool created this file — show as new file hunk
+    // External tool created this file — show as new file hunk (null = file didn't exist before)
     log(`onDiskCreate(${basename}): external create, enterReviewing as NEW`);
-    this.enterReviewing(filePath, '', diskContent);
+    this.enterReviewing(filePath, null, diskContent);
   }
 
   private async onDiskDelete(uri: vscode.Uri): Promise<void> {
@@ -344,12 +343,21 @@ export class FileWatcher {
       return;
     }
 
-    // External tool deleted the file — always produce a hunk
+    // External tool deleted the file
     if (!git) { log(`onDiskDelete(${basename}): no git, skip`); return; }
+
+    // If file was new (null baseline), just clean up — nothing to show, nothing in git
+    if (fileState?.baseline === null) {
+      log(`onDiskDelete(${basename}): new file (null baseline) deleted, removing fileState`);
+      this.stateManager.exitReviewing(filePath);
+      this.onStateChanged();
+      return;
+    }
+
     const gitBaseline = fileState?.baseline ?? await git.getBaseline(filePath);
     log(`onDiskDelete(${basename}): external delete, gitBaseline=${gitBaseline !== undefined ? `'${gitBaseline.length} chars'` : 'undefined'}`);
-    if (gitBaseline === undefined || gitBaseline === '') {
-      // No baseline (new untracked file deleted) — nothing to show
+    if (gitBaseline === undefined) {
+      // Not tracked at all — nothing to show
       if (fileState) {
         log(`onDiskDelete(${basename}): no baseline, removing fileState`);
         this.stateManager.removeFile(filePath);
@@ -357,6 +365,8 @@ export class FileWatcher {
       }
       return;
     }
+    // gitBaseline is '' (empty file) or has content — show as deletion.
+    // enterReviewing will detect isDeleted via !fs.existsSync (file no longer on disk).
     this.enterReviewing(filePath, gitBaseline, '');
   }
 
@@ -435,19 +445,27 @@ export class FileWatcher {
     this.debounceTimers.set(filePath, timer);
   }
 
-  private enterReviewing(filePath: string, baseline: string, current: string): void {
-    if (computeHunks(baseline, current).length === 0) return;
-    const isNew = baseline === '';
-    const isDeleted = current === '';
+  private enterReviewing(filePath: string, baseline: string | null, current: string): void {
+    const hunks = computeHunks(baseline, current);
+    const isNew = baseline === null;
+    const isDeleted = !fs.existsSync(filePath) && baseline !== null;
+    // Allow 0-hunk entry for new files (null baseline) and deleted files (file gone, nothing to diff)
+    if (hunks.length === 0 && !isNew && !isDeleted) return;
     const tag = isNew ? ' (new)' : isDeleted ? ' (deleted)' : '';
     log(`reviewing: ${path.basename(filePath)}${tag}`);
     this.stateManager.setFile(filePath, { status: 'reviewing', baseline });
     this.onStateChanged();
   }
 
-  private recomputeHunks(filePath: string, baseline: string, current: string): void {
+  private recomputeHunks(filePath: string, baseline: string | null, current: string): void {
     if (computeHunks(baseline, current).length === 0) {
-      // No diff remaining — exit reviewing, baseline in git is already correct
+      // No diff remaining — exit reviewing.
+      // For null-baseline (new) files with empty current, keep reviewing
+      // so the user can still accept/discard.
+      if (baseline === null && current === '') {
+        this.onStateChanged();
+        return;
+      }
       this.stateManager.exitReviewing(filePath);
     }
     this.onStateChanged();

@@ -207,4 +207,185 @@ suite('hunkwise delete & restore integration', function () {
     assert.strictEqual(fileState?.status, 'reviewing', 'File should remain in reviewing with different content');
     assert.strictEqual(fileState?.baseline, 'original\n', 'Baseline should be preserved');
   });
+
+  // ── null baseline vs empty baseline tests ──────────────────────────────────
+
+  test('discard new file (null baseline) deletes the file', async () => {
+    const root = getWorkspaceRoot();
+    const filePath = path.join(root, 'new-discard.txt');
+
+    await enableHunkwise();
+
+    // Create file externally → null baseline (new file)
+    writeFileExternally(filePath, 'new file content\n');
+
+    const sm = getStateManager();
+    assert.ok(sm, 'StateManager should be available');
+    await waitForCondition(() => {
+      const f = sm.getFile(filePath);
+      return f?.status === 'reviewing';
+    }, 5000);
+
+    assert.strictEqual(sm.getFile(filePath)?.baseline, null, 'New file should have null baseline');
+
+    // Discard → should delete the file
+    const fw = getFileWatcher();
+    assert.ok(fw, 'FileWatcher should be available');
+    await discardFileByPath(sm, fw, filePath, () => {});
+
+    assert.ok(!fs.existsSync(filePath), 'New file should be deleted after discard');
+    assert.ok(!sm.getFile(filePath), 'File should be removed from state after discard');
+  });
+
+  test('discard existing empty file (empty baseline) restores to empty', async () => {
+    const root = getWorkspaceRoot();
+    const filePath = path.join(root, 'was-empty.txt');
+
+    // Create empty file before enable → snapshotted as '' baseline
+    writeFileExternally(filePath, '');
+    await enableHunkwise();
+
+    const rel = path.relative(root, filePath);
+    await waitForCondition(() => gitGetBaseline(root, rel) !== undefined, 5000);
+    // The snapshot stores '' for empty files
+    assert.strictEqual(gitGetBaseline(root, rel), '', 'Empty file baseline should be empty string');
+
+    // External tool writes content → enters reviewing with '' baseline
+    writeFileExternally(filePath, 'now has content\n');
+
+    const sm = getStateManager();
+    assert.ok(sm, 'StateManager should be available');
+    await waitForCondition(() => {
+      const f = sm.getFile(filePath);
+      return f?.status === 'reviewing';
+    }, 5000);
+
+    assert.strictEqual(sm.getFile(filePath)?.baseline, '', 'Existing empty file should have empty string baseline');
+
+    // Discard → should restore to empty (not delete!)
+    const fw = getFileWatcher();
+    assert.ok(fw, 'FileWatcher should be available');
+    await discardFileByPath(sm, fw, filePath, () => {});
+
+    assert.ok(fs.existsSync(filePath), 'File should still exist after discard (was empty, not new)');
+    assert.strictEqual(fs.readFileSync(filePath, 'utf-8'), '', 'File should be restored to empty');
+  });
+
+  test('accept new file converts null baseline to actual content in git', async () => {
+    const root = getWorkspaceRoot();
+    const filePath = path.join(root, 'new-accept.txt');
+
+    await enableHunkwise();
+
+    // Create file externally → null baseline
+    writeFileExternally(filePath, 'accepted content\n');
+
+    const sm = getStateManager();
+    assert.ok(sm, 'StateManager should be available');
+    await waitForCondition(() => {
+      const f = sm.getFile(filePath);
+      return f?.status === 'reviewing';
+    }, 5000);
+
+    assert.strictEqual(sm.getFile(filePath)?.baseline, null, 'Should have null baseline before accept');
+
+    // Accept → should snapshot current content as baseline
+    const { acceptFileByPath } = await import('../../commands');
+    acceptFileByPath(sm, filePath, () => {});
+
+    assert.ok(!sm.getFile(filePath), 'File should not be in reviewing after accept');
+
+    // Baseline in git should now be the actual content
+    const rel = path.relative(root, filePath);
+    await waitForCondition(() => gitGetBaseline(root, rel) === 'accepted content\n', 5000);
+    assert.strictEqual(gitGetBaseline(root, rel), 'accepted content\n');
+  });
+
+  test('state and git baseline are consistent after operations', async () => {
+    const root = getWorkspaceRoot();
+    const filePath = path.join(root, 'consistency.txt');
+
+    // Create file before enable → becomes baseline
+    writeFileExternally(filePath, 'initial\n');
+    await enableHunkwise();
+
+    const sm = getStateManager();
+    assert.ok(sm, 'StateManager should be available');
+    const rel = path.relative(root, filePath);
+    await waitForCondition(() => gitGetBaseline(root, rel) !== undefined, 5000);
+
+    // Verify initial consistency: file is idle, baseline matches
+    assert.strictEqual(gitGetBaseline(root, rel), 'initial\n');
+    assert.ok(!sm.getFile(filePath), 'Idle file should not be in state map');
+
+    // External modification → enters reviewing
+    writeFileExternally(filePath, 'modified\n');
+    await waitForCondition(() => sm.getFile(filePath)?.status === 'reviewing', 5000);
+
+    // Memory baseline should match git baseline
+    assert.strictEqual(sm.getFile(filePath)?.baseline, 'initial\n');
+    assert.strictEqual(gitGetBaseline(root, rel), 'initial\n', 'Git baseline should still be initial');
+
+    // Accept → baseline should update to current content
+    const { acceptFileByPath } = await import('../../commands');
+    acceptFileByPath(sm, filePath, () => {});
+
+    assert.ok(!sm.getFile(filePath), 'Should exit reviewing after accept');
+    await waitForCondition(() => gitGetBaseline(root, rel) === 'modified\n', 5000);
+    assert.strictEqual(gitGetBaseline(root, rel), 'modified\n', 'Git baseline should update after accept');
+  });
+
+  // ── load/rebuild restores deleted files to reviewing ─────────────────────
+
+  test('deleted file enters reviewing after load (simulates restart)', async () => {
+    const root = getWorkspaceRoot();
+    const filePath = path.join(root, 'load-deleted.txt');
+
+    // Create file before enable → becomes baseline in git
+    writeFileExternally(filePath, 'will be deleted\n');
+    await enableHunkwise();
+
+    const rel = path.relative(root, filePath);
+    await waitForCondition(() => gitGetBaseline(root, rel) !== undefined, 5000);
+    assert.strictEqual(gitGetBaseline(root, rel), 'will be deleted\n');
+
+    const fw = getFileWatcher();
+    assert.ok(fw, 'FileWatcher should be available');
+    const sm = getStateManager();
+    assert.ok(sm, 'StateManager should be available');
+
+    // Suppress FileWatcher before deleting — prevents async onDiskDelete from
+    // racing with our manual state manipulation below.
+    fw.suppressAll();
+    try {
+      // Delete the file while FileWatcher is suppressed
+      fs.unlinkSync(filePath);
+      assert.ok(!fs.existsSync(filePath), 'File should be gone from disk');
+
+      // Drain any pending git ops queued before suppress
+      await sm.flush();
+
+      // Clear in-memory state to simulate fresh start — baselines remain in git.
+      // Uses internal state map directly because there is no public clear-without-git API;
+      // rebuildState() does the same via this.state.clear().
+      (sm as any).state.clear();
+      assert.ok(!sm.getFile(filePath), 'File should be cleared from memory');
+
+      // Call load() with shouldIgnore matching production activation
+      await sm.load((fp: string, isDir?: boolean) => fw.shouldIgnore(fp, isDir));
+    } finally {
+      fw.resumeAll();
+    }
+
+    const fileState = sm.getFile(filePath);
+    assert.ok(fileState, 'Deleted file should be in state map after load');
+    assert.strictEqual(fileState?.status, 'reviewing', 'Deleted file should be in reviewing state');
+    assert.strictEqual(fileState?.baseline, 'will be deleted\n', 'Baseline should be preserved');
+
+    // Verify the file can be restored via discard
+    await discardFileByPath(sm, fw, filePath, () => {});
+
+    assert.ok(fs.existsSync(filePath), 'File should be restored on disk after discard');
+    assert.strictEqual(fs.readFileSync(filePath, 'utf-8'), 'will be deleted\n');
+  });
 });

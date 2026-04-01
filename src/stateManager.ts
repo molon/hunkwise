@@ -32,6 +32,11 @@ export class StateManager {
   // Serial queue: git ops run one at a time; flush() awaits the tail
   private gitQueue: Promise<void> = Promise.resolve();
 
+  // Optional callback invoked when a git failure causes an in-memory rollback
+  // (e.g. exitReviewing snapshot fails and reviewing state is restored).
+  // Set by the extension to trigger UI refresh after unexpected state restoration.
+  onRollback: (() => void) | undefined;
+
   constructor() {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (workspaceFolders && workspaceFolders.length > 0) {
@@ -101,14 +106,21 @@ export class StateManager {
         skippedNoBaseline.push(filePath);
         return;
       }
-      // Compare baseline with current disk content — only enter reviewing if there's a real diff
+      // Compare baseline with current disk content — enter reviewing if there's a real diff
+      // or if the file has been deleted (so the user can restore it via discard).
+      // Use a single readFile call to avoid TOCTOU race (existsSync + readFile).
       let diskContent: string | undefined;
-      try { diskContent = await fs.promises.readFile(filePath, 'utf-8'); } catch { /* file deleted or unreadable */ }
-      if (diskContent !== undefined && diskContent !== baseline) {
+      let fileDeleted = false;
+      try {
+        diskContent = await fs.promises.readFile(filePath, 'utf-8');
+      } catch (err: any) {
+        if (err?.code === 'ENOENT') { fileDeleted = true; } // file doesn't exist
+        // other errors (e.g. permissions) → diskContent stays undefined, treat as idle
+      }
+      if (fileDeleted || (diskContent !== undefined && diskContent !== baseline)) {
         this.state.set(filePath, { status: 'reviewing', baseline });
         reviewing.push(filePath);
       } else {
-        // No diff (or file deleted) — baseline is stored in git, no need to set reviewing
         idle.push(filePath);
       }
     }));
@@ -159,8 +171,13 @@ export class StateManager {
       const baseline = await g.getBaseline(filePath);
       if (baseline === undefined) return;
       let diskContent: string | undefined;
-      try { diskContent = await fs.promises.readFile(filePath, 'utf-8'); } catch { /* deleted or unreadable */ }
-      if (diskContent !== undefined && diskContent !== baseline) {
+      let fileDeleted = false;
+      try {
+        diskContent = await fs.promises.readFile(filePath, 'utf-8');
+      } catch (err: any) {
+        if (err?.code === 'ENOENT') { fileDeleted = true; }
+      }
+      if (fileDeleted || (diskContent !== undefined && diskContent !== baseline)) {
         this.state.set(filePath, { status: 'reviewing', baseline });
       }
     }));
@@ -207,19 +224,39 @@ export class StateManager {
   }
 
   setFile(filePath: string, state: FileState, skipSnapshot?: boolean): void {
+    // Clone old state so callers mutating the FileState object don't corrupt the rollback snapshot
+    const oldState = this.state.has(filePath) ? { ...this.state.get(filePath)! } : undefined;
     this.state.set(filePath, state);
-    if (!skipSnapshot && this._git) {
+    if (!skipSnapshot && this._git && state.baseline !== null) {
       const g = this._git;
       const baseline = state.baseline;
-      this.gitQueue = this.gitQueue.then(() => g.snapshot(filePath, baseline)).catch(err => { log(`git queue error: ${err}`); });
+      this.gitQueue = this.gitQueue.then(() => g.snapshot(filePath, baseline)).catch(err => {
+        log(`git queue error (setFile rollback): ${err}`);
+        // Only rollback if this exact state object is still current (no newer operation has updated it)
+        if (this.state.get(filePath) === state) {
+          if (oldState) { this.state.set(filePath, oldState); } else { this.state.delete(filePath); }
+          this.onRollback?.();
+        }
+      });
     }
   }
 
   removeFile(filePath: string): void {
+    // Clone old state so the rollback has an independent snapshot
+    const oldState = this.state.has(filePath) ? { ...this.state.get(filePath)! } : undefined;
     this.state.delete(filePath);
-    if (this._git) {
+    // Skip git removal only when we know the file had a null baseline (never stored in git).
+    // If oldState is undefined (idle file, not in map) or has a real baseline, queue the removal.
+    if (this._git && !(oldState !== undefined && oldState.baseline === null)) {
       const g = this._git;
-      this.gitQueue = this.gitQueue.then(() => g.removeFile(filePath)).catch(err => { log(`git queue error: ${err}`); });
+      this.gitQueue = this.gitQueue.then(() => g.removeFile(filePath)).catch(err => {
+        log(`git queue error (removeFile rollback): ${err}`);
+        // Only rollback if no newer operation has re-added the entry
+        if (!this.state.has(filePath) && oldState) {
+          this.state.set(filePath, { ...oldState });
+          this.onRollback?.();
+        }
+      });
     }
   }
 
@@ -229,9 +266,15 @@ export class StateManager {
     if (fileState) {
       this.state.set(newFilePath, fileState);
     }
-    if (this._git) {
+    // Skip git rename only when we know the file had a null baseline (never stored in hunkwise git).
+    // If fileState is undefined (idle file, not in map) or has a real baseline, queue the rename.
+    if (this._git && !(fileState && fileState.baseline === null)) {
       const g = this._git;
-      this.gitQueue = this.gitQueue.then(() => g.renameFile(oldFilePath, newFilePath)).catch(err => { log(`git queue error: ${err}`); });
+      this.gitQueue = this.gitQueue.then(() => g.renameFile(oldFilePath, newFilePath)).catch(err => {
+        // Do not rollback in-memory path mapping: the file has already been renamed on disk,
+        // so reverting to oldFilePath would desync state/UI from the filesystem.
+        log(`git queue error (renameFile): ${err}`);
+      });
     }
   }
 
@@ -256,13 +299,29 @@ export class StateManager {
 
   /**
    * Exit reviewing state without removing the file from git.
-   * If newBaseline is provided, update the baseline in git (e.g. after accept).
-   * If omitted, the existing baseline is already correct (e.g. hunks resolved to 0, or discard).
+   * If newBaseline is provided as a non-null string, update the baseline in git (e.g. after accept).
+   * If omitted or explicitly null, do not snapshot or update the git baseline; the existing baseline
+   * is assumed to already be correct (e.g. hunks resolved to 0, or discard).
    */
-  exitReviewing(filePath: string, newBaseline?: string): void {
+  exitReviewing(filePath: string, newBaseline?: string | null): void {
+    const oldState = this.state.has(filePath) ? { ...this.state.get(filePath)! } : undefined;
     this.state.delete(filePath);
-    if (newBaseline !== undefined) {
-      this.snapshotFile(filePath, newBaseline);
+    if (newBaseline !== undefined && newBaseline !== null) {
+      if (this._git) {
+        const g = this._git;
+        const baseline = newBaseline;
+        this.gitQueue = this.gitQueue.then(() => g.snapshot(filePath, baseline)).catch(err => {
+          log(`git queue error (exitReviewing rollback): ${err}`);
+          // Restore reviewing state so the user can retry rather than silently getting a stale baseline
+          if (!this.state.has(filePath) && oldState) {
+            this.state.set(filePath, { ...oldState });
+            this.onRollback?.();
+            void vscode.window.showErrorMessage(
+              `Failed to update review baseline for ${path.basename(filePath)}. The file has been kept in reviewing so you can retry.`
+            );
+          }
+        });
+      }
     }
   }
 
@@ -538,7 +597,7 @@ export class StateManager {
     await Promise.all(diskFiles.map(async fp => {
       try {
         const content = await fs.promises.readFile(fp, 'utf-8');
-        if (content.length > 0) batch.push({ filePath: fp, content });
+        batch.push({ filePath: fp, content });
       } catch { /* skip unreadable */ }
     }));
 

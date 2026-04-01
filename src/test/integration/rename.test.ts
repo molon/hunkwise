@@ -6,6 +6,7 @@ import {
   getWorkspaceRoot, gitListTracked, gitGetBaseline,
   sleep, waitForCondition, enableHunkwise, disableHunkwise,
   writeFileExternally, renameFileViaVSCode, deleteFileViaVSCode, cleanWorkspace,
+  getStateManager,
 } from './helpers';
 
 // ── Test suite ────────────────────────────────────────────────────────────────
@@ -26,28 +27,32 @@ suite('hunkwise rename integration', function () {
     const root = getWorkspaceRoot();
     await enableHunkwise();
 
-    // Externally create a new file → triggers review with baseline=''
+    // Externally create a new file → triggers review with null baseline
     const oldPath = path.join(root, 'new-file.txt');
     writeFileExternally(oldPath, 'new file content\n');
 
-    const oldRel = path.relative(root, oldPath);
-    await waitForCondition(() => gitListTracked(root).includes(oldRel), 8000);
+    const sm = getStateManager();
+    assert.ok(sm, 'StateManager should be available');
+    await waitForCondition(() => {
+      const f = sm.getFile(oldPath);
+      return f?.status === 'reviewing';
+    }, 8000);
 
     // Rename via VSCode API
     const newPath = path.join(root, 'new-file-renamed.txt');
-    const newRel = path.relative(root, newPath);
     await renameFileViaVSCode(vscode.Uri.file(oldPath), vscode.Uri.file(newPath));
 
-    await waitForCondition(() => gitListTracked(root).includes(newRel), 5000);
+    await waitForCondition(() => {
+      const f = sm.getFile(newPath);
+      return f?.status === 'reviewing';
+    }, 5000);
 
-    // Verify: new path is tracked, old path is not
-    const tracked = gitListTracked(root);
-    assert.ok(!tracked.includes(oldRel), `Old path "${oldRel}" should not be tracked`);
-    assert.ok(tracked.includes(newRel), `New path "${newRel}" should be tracked`);
+    // Verify: new path is tracked in memory, old path is not
+    assert.ok(!sm.getFile(oldPath), `Old path should not be in state`);
+    assert.ok(sm.getFile(newPath), `New path should be in state`);
 
-    // Verify: baseline content is preserved (empty for new file)
-    const baseline = gitGetBaseline(root, newRel);
-    assert.strictEqual(baseline, '', 'Baseline should be empty for new file');
+    // Verify: baseline is null (new file) — null-baseline files are not in git
+    assert.strictEqual(sm.getFile(newPath)?.baseline, null, 'Baseline should be null for new file');
 
     // Verify: file exists on disk at new path
     assert.ok(fs.existsSync(newPath), 'File should exist at new path');
@@ -56,11 +61,12 @@ suite('hunkwise rename integration', function () {
 
   test('rename a reviewing file preserves baseline under new path', async () => {
     const root = getWorkspaceRoot();
-    await enableHunkwise();
 
-    // Create a file that will be snapshotted as baseline
+    // Create a file BEFORE enable so it gets snapshotted as baseline
     const filePath = path.join(root, 'reviewing-file.txt');
     writeFileExternally(filePath, 'original content\n');
+
+    await enableHunkwise();
 
     const rel = path.relative(root, filePath);
     await waitForCondition(() => gitGetBaseline(root, rel) !== undefined, 8000);
@@ -68,7 +74,13 @@ suite('hunkwise rename integration', function () {
 
     // Externally modify the file → triggers review mode
     writeFileExternally(filePath, 'original content\nmodified line\n');
-    await sleep(500);
+
+    const sm = getStateManager();
+    assert.ok(sm, 'StateManager should be available');
+    await waitForCondition(() => {
+      const f = sm.getFile(filePath);
+      return f?.status === 'reviewing';
+    }, 5000);
 
     // Rename via VSCode API while in reviewing state
     const newPath = path.join(root, 'reviewing-file-renamed.txt');
@@ -93,11 +105,12 @@ suite('hunkwise rename integration', function () {
 
   test('manual delete via VSCode does not produce a deletion hunk', async () => {
     const root = getWorkspaceRoot();
-    await enableHunkwise();
 
-    // Create a file and let it be snapshotted
+    // Create a file BEFORE enable so it gets snapshotted as baseline
     const filePath = path.join(root, 'to-delete.txt');
     writeFileExternally(filePath, 'delete me\n');
+
+    await enableHunkwise();
 
     const rel = path.relative(root, filePath);
     await waitForCondition(() => gitGetBaseline(root, rel) !== undefined, 8000);

@@ -61,6 +61,27 @@ describe('computeHunks', () => {
     assert.equal(hunks[0].oldLines, 2);
   });
 
+  // ── null baseline tests (file did not exist before) ──────────────────────
+  it('null baseline with content treats as new file (same as empty baseline)', () => {
+    const hunks = computeHunks(null, 'hello\nworld\n');
+    assert.equal(hunks.length, 1);
+    assert.equal(hunks[0].oldLines, 0);
+    assert.equal(hunks[0].newLines, 2);
+    assert.equal(hunks[0].newStart, 1);
+  });
+
+  it('null baseline with empty current returns no hunks', () => {
+    const hunks = computeHunks(null, '');
+    assert.equal(hunks.length, 0);
+  });
+
+  it('null baseline behaves identically to empty string baseline for diff', () => {
+    const content = 'line1\nline2\nline3\n';
+    const hunksNull = computeHunks(null, content);
+    const hunksEmpty = computeHunks('', content);
+    assert.deepEqual(hunksNull, hunksEmpty);
+  });
+
   it('computes correct newStart line numbers', () => {
     const baseline = 'a\nb\nc\n';
     const current  = 'a\nb\nX\n';

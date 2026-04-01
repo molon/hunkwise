@@ -132,13 +132,27 @@ export async function discardFileByPath(
 
   fileWatcher.markSelfEdit(filePath);
   try {
-    if (fileState.baseline === '') {
+    if (fileState.baseline === null) {
+      // New file (didn't exist before) — delete it
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
       }
+    } else if (fileState.baseline === '' && fs.existsSync(filePath)) {
+      // Existed as empty file — restore to empty
+      const uri = vscode.Uri.file(filePath);
+      const doc = await vscode.workspace.openTextDocument(uri);
+      const edit = new vscode.WorkspaceEdit();
+      const fullRange = new vscode.Range(
+        new vscode.Position(0, 0),
+        new vscode.Position(doc.lineCount - 1, doc.lineAt(doc.lineCount - 1).text.length)
+      );
+      edit.replace(uri, fullRange, '');
+      await vscode.workspace.applyEdit(edit);
+      await doc.save();
     } else if (!fs.existsSync(filePath)) {
+      // File was deleted — restore from baseline
       fs.mkdirSync(path.dirname(filePath), { recursive: true });
-      fs.writeFileSync(filePath, fileState.baseline, 'utf-8');
+      fs.writeFileSync(filePath, fileState.baseline ?? '', 'utf-8');
       await vscode.window.showTextDocument(vscode.Uri.file(filePath));
     } else {
       const uri = vscode.Uri.file(filePath);
@@ -148,14 +162,14 @@ export async function discardFileByPath(
         new vscode.Position(0, 0),
         new vscode.Position(doc.lineCount - 1, doc.lineAt(doc.lineCount - 1).text.length)
       );
-      edit.replace(uri, fullRange, fileState.baseline);
+      edit.replace(uri, fullRange, fileState.baseline ?? '');
       await vscode.workspace.applyEdit(edit);
       await doc.save();
     }
   } finally {
     fileWatcher.clearSelfEdit(filePath);
   }
-  if (fileState.baseline === '') {
+  if (fileState.baseline === null) {
     // Discarding a new file means it was deleted — remove from tracking
     stateManager.removeFile(filePath);
   } else {
@@ -180,7 +194,8 @@ export function acceptHunk(
 
   const doc = vscode.workspace.textDocuments.find(d => d.uri.scheme === 'file' && d.uri.fsPath === filePath);
   if (!doc) { log(`acceptHunk(${basename}): no doc found, skip`); return; }
-  log(`acceptHunk(${basename}): doc.scheme=${doc.uri.scheme}, doc.len=${doc.getText().length}, baseline.len=${fileState.baseline.length}`);
+  const baselineStr = fileState.baseline ?? '';
+  log(`acceptHunk(${basename}): doc.scheme=${doc.uri.scheme}, doc.len=${doc.getText().length}, baseline.len=${baselineStr.length}`);
 
   const hunks = computeHunks(fileState.baseline, doc.getText());
   log(`acceptHunk(${basename}): total hunks=${hunks.length}`);
@@ -190,21 +205,20 @@ export function acceptHunk(
   const originalNewStart = hunk.newStart;
 
   const currentLines = doc.getText().split('\n');
-  const baselineLines = fileState.baseline.split('\n');
+  const baselineLines = baselineStr.split('\n');
   const newBaseline = [
     ...baselineLines.slice(0, hunk.oldStart - 1),
     ...currentLines.slice(hunk.newStart - 1, hunk.newStart - 1 + hunk.newLines),
     ...baselineLines.slice(hunk.oldStart - 1 + hunk.oldLines),
   ].join('\n');
 
-  fileState.baseline = newBaseline;
   const remainingHunks = computeHunks(newBaseline, doc.getText());
   log(`acceptHunk(${basename}): remainingHunks=${remainingHunks.length}`);
   if (remainingHunks.length === 0) {
     log(`acceptHunk(${basename}): last hunk, exitReviewing`);
     stateManager.exitReviewing(filePath, doc.getText());
   } else {
-    stateManager.setFile(filePath, fileState);
+    stateManager.setFile(filePath, { status: 'reviewing', baseline: newBaseline });
     revealNextHunk(filePath, remainingHunks, originalNewStart);
   }
   onStateChanged();
@@ -249,7 +263,8 @@ export async function discardHunk(
 
   const originalNewStart = hunk.newStart;
 
-  const baselineLines = fileState.baseline.split('\n');
+  const baselineStr = fileState.baseline ?? '';
+  const baselineLines = baselineStr.split('\n');
   const originalLines = baselineLines.slice(hunk.oldStart - 1, hunk.oldStart - 1 + hunk.oldLines);
 
   const startPos = new vscode.Position(hunk.newStart - 1, 0);
@@ -283,8 +298,8 @@ export async function discardHunk(
     const remainingHunks = computeHunks(fileState.baseline, currentText);
     log(`discardHunk(${basename}): remainingHunks=${remainingHunks.length}`);
     if (remainingHunks.length === 0) {
-      if (fileState.baseline === '' && fs.existsSync(filePath)) {
-        // New file (baseline is empty) fully discarded — remove from disk
+      if (fileState.baseline === null && fs.existsSync(filePath)) {
+        // New file (didn't exist before) fully discarded — remove from disk
         log(`discardHunk(${basename}): new file fully discarded, deleting`);
         try { fs.unlinkSync(filePath); } catch (err) { log(`discardHunk(${basename}): unlink failed: ${err}`); }
       }
