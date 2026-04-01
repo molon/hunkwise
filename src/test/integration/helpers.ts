@@ -80,6 +80,15 @@ export async function writeFileViaVSCode(filePath: string, content: string): Pro
   await vscode.workspace.fs.writeFile(uri, Buffer.from(content, 'utf-8'));
 }
 
+export async function createFileViaVSCode(filePath: string, content: string): Promise<void> {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const uri = vscode.Uri.file(filePath);
+  const edit = new vscode.WorkspaceEdit();
+  edit.createFile(uri, { overwrite: true, contents: Buffer.from(content, 'utf-8') });
+  const success = await vscode.workspace.applyEdit(edit);
+  if (!success) throw new Error(`Failed to create ${filePath}`);
+}
+
 export async function renameFileViaVSCode(oldUri: vscode.Uri, newUri: vscode.Uri): Promise<void> {
   const edit = new vscode.WorkspaceEdit();
   edit.renameFile(oldUri, newUri);

@@ -38,6 +38,8 @@ function prefixGitignoreRules(content: string, prefix: string): string {
 export class FileWatcher {
   private disposables: vscode.Disposable[] = [];
   private selfEditFiles: Set<string> = new Set();
+  // Files being created by the user via VSCode (explorer / applyEdit)
+  private pendingUserCreates: Set<string> = new Set();
   // Files being deleted by the user via VSCode (explorer / applyEdit)
   private pendingUserDeletes: Set<string> = new Set();
   // Old paths of in-progress user renames — suppress onDiskDelete without extra git ops
@@ -73,6 +75,23 @@ export class FileWatcher {
     watcher.onDidDelete(uri => this.onDiskDelete(uri));
     watcher.onDidCreate(uri => this.onDiskCreate(uri));
     this.disposables.push(watcher);
+
+    // onWillCreateFiles fires for user-initiated creates (explorer, applyEdit),
+    // but NOT for external creates (Finder drag, scripts, AI tools).
+    this.disposables.push(
+      vscode.workspace.onWillCreateFiles(e => {
+        for (const uri of e.files) {
+          this.pendingUserCreates.add(uri.fsPath);
+        }
+      }),
+      vscode.workspace.onDidCreateFiles(e => {
+        setTimeout(() => {
+          for (const uri of e.files) {
+            this.pendingUserCreates.delete(uri.fsPath);
+          }
+        }, 500);
+      }),
+    );
 
     // onWillDeleteFiles fires for user-initiated deletes (explorer, applyEdit),
     // but NOT for external tool deletes — use this to distinguish the two.
@@ -297,13 +316,13 @@ export class FileWatcher {
       return;
     }
 
-    // Check if this was a manual create in VSCode (editor buffer matches disk)
-    const openDoc = vscode.workspace.textDocuments.find(d => d.uri.fsPath === filePath);
-    const bufferMatch = openDoc ? openDoc.getText() === diskContent : false;
-    log(`onDiskCreate(${basename}): openDoc=${!!openDoc}, bufferMatch=${bufferMatch}`);
-    if (openDoc && bufferMatch) {
-      // User created/saved this file in VSCode — snapshot as baseline, no hunk
-      log(`onDiskCreate(${basename}): buffer matches disk, snapshot as baseline`);
+    // Check if this was a user-initiated create in VSCode (explorer, applyEdit)
+    // — onWillCreateFiles fires only for VSCode API creates, not external ones (Finder, scripts)
+    const isUserCreate = this.pendingUserCreates.has(filePath);
+    log(`onDiskCreate(${basename}): isUserCreate=${isUserCreate}`);
+    if (isUserCreate) {
+      this.pendingUserCreates.delete(filePath);
+      log(`onDiskCreate(${basename}): user create via VSCode, snapshot as baseline`);
       this.stateManager.snapshotFile(filePath, diskContent);
       return;
     }
@@ -476,6 +495,7 @@ export class FileWatcher {
       clearTimeout(timer);
     }
     this.debounceTimers.clear();
+    this.pendingUserCreates.clear();
     this.pendingUserDeletes.clear();
     this.pendingRenameOldPaths.clear();
     this.disposables.forEach(d => d.dispose());
