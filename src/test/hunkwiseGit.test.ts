@@ -284,6 +284,62 @@ describe('HunkwiseGit', () => {
       assert.strictEqual(baseline, 'content1\n');
       fs.rmSync(dir2, { recursive: true, force: true });
     });
+
+    it('NFD paths from snapshot are found by listTrackedFiles as NFC', async () => {
+      // On macOS, readdir may return NFD paths while git ls-tree returns NFC.
+      // Both snapshot (which stores NFD from filesystem) and listTrackedFiles (NFC from git)
+      // must agree on paths so that Set/Map lookups match.
+      const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hunkwise-nfc-'));
+      const root = dir2;
+      const g2 = new HunkwiseGit(path.join(dir2, '.vscode', 'hunkwise'), root);
+      await g2.initGit();
+      // が in NFD = か (U+304B) + combining dakuten (U+3099)
+      const nfdName = '\u304b\u3099\u30c8\u3099.txt'; // がド.txt in NFD
+      const nfcName = nfdName.normalize('NFC');           // がド.txt in NFC
+      assert.notStrictEqual(nfdName, nfcName, 'test sanity: NFD and NFC should differ');
+      const nfdPath = path.join(root, nfdName);
+      // Snapshot with NFD path (simulating filesystem path)
+      await g2.snapshot(nfdPath, 'hello\n');
+      const tracked = await g2.listTrackedFiles();
+      // listTrackedFiles returns NFC paths (git precompose on macOS)
+      // Our normalization ensures the snapshot was also stored as NFC
+      const nfcPath = path.join(root, nfcName);
+      assert.ok(tracked.includes(nfcPath), `tracked should include NFC path ${nfcPath}, got: ${tracked}`);
+      // getBaseline with NFD path should still work (normalized to NFC internally)
+      const baseline = await g2.getBaseline(nfdPath);
+      assert.strictEqual(baseline, 'hello\n');
+      // removeFile with NFC path should work
+      await g2.removeFile(nfcPath);
+      const tracked2 = await g2.listTrackedFiles();
+      assert.strictEqual(tracked2.length, 0);
+      fs.rmSync(dir2, { recursive: true, force: true });
+    });
+
+    it('renameFile handles directory renames', async () => {
+      const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hunkwise-dirren-'));
+      const root = dir2;
+      const g2 = new HunkwiseGit(path.join(dir2, '.vscode', 'hunkwise'), root);
+      await g2.initGit();
+      const oldDir = path.join(root, 'oldDir');
+      const newDir = path.join(root, 'newDir');
+      fs.mkdirSync(oldDir, { recursive: true });
+      const f1 = path.join(oldDir, 'a.txt');
+      const f2 = path.join(oldDir, 'b.txt');
+      await g2.snapshotBatch([
+        { filePath: f1, content: 'aaa\n' },
+        { filePath: f2, content: 'bbb\n' },
+      ]);
+      // Rename directory
+      await g2.renameFile(oldDir, newDir);
+      const tracked = await g2.listTrackedFiles();
+      assert.ok(!tracked.some(fp => fp.includes('oldDir')), `no old paths: ${tracked}`);
+      assert.ok(tracked.includes(path.join(newDir, 'a.txt')), `tracked a.txt under newDir: ${tracked}`);
+      assert.ok(tracked.includes(path.join(newDir, 'b.txt')), `tracked b.txt under newDir: ${tracked}`);
+      // Baselines should be accessible under new paths
+      assert.strictEqual(await g2.getBaseline(path.join(newDir, 'a.txt')), 'aaa\n');
+      assert.strictEqual(await g2.getBaseline(path.join(newDir, 'b.txt')), 'bbb\n');
+      fs.rmSync(dir2, { recursive: true, force: true });
+    });
   });
 
   describe('settings', () => {
