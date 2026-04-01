@@ -435,7 +435,9 @@ suite('hunkwise ignore/gitignore integration', function () {
     // All files should be tracked (shouldIgnore must not reject non-ASCII paths)
     await waitForCondition(() => {
       const tracked = gitListTracked(root);
-      return tracked.includes('normal.txt') && tracked.some(f => f.includes('文件.txt'));
+      return tracked.includes('normal.txt')
+        && tracked.some(f => f.includes('文件.txt'))
+        && tracked.some(f => f.includes('résumé.txt'));
     }, 8000);
 
     const tracked = gitListTracked(root);
