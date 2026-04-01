@@ -420,6 +420,30 @@ suite('hunkwise ignore/gitignore integration', function () {
     assert.ok(!tracked.some(f => f.startsWith('node_modules/')), 'node_modules/ should be ignored');
   });
 
+  test('non-ASCII file and directory names are tracked correctly', async () => {
+    const root = getWorkspaceRoot();
+
+    // Create files with non-ASCII names — verifies shouldIgnore does not
+    // crash or mishandle paths containing multibyte characters (the
+    // regression this PR targets with asRelativePath).
+    writeFileExternally(path.join(root, '中文目录', '文件.txt'), 'content\n');
+    writeFileExternally(path.join(root, 'données', 'résumé.txt'), 'french\n');
+    writeFileExternally(path.join(root, 'normal.txt'), 'normal\n');
+
+    await enableHunkwise();
+
+    // All files should be tracked (shouldIgnore must not reject non-ASCII paths)
+    await waitForCondition(() => {
+      const tracked = gitListTracked(root);
+      return tracked.includes('normal.txt') && tracked.some(f => f.includes('文件.txt'));
+    }, 8000);
+
+    const tracked = gitListTracked(root);
+    assert.ok(tracked.some(f => f.includes('文件.txt')), 'Non-ASCII (Chinese) file should be tracked');
+    assert.ok(tracked.some(f => f.includes('résumé.txt')), 'Non-ASCII (accented) file should be tracked');
+    assert.ok(tracked.includes('normal.txt'), 'normal.txt should be tracked');
+  });
+
   test('adding nested .gitignore removes already-tracked files via syncIgnoreState', async () => {
     const root = getWorkspaceRoot();
 

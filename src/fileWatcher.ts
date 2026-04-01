@@ -172,7 +172,7 @@ export class FileWatcher {
       if (dir === rootPath) {
         this.gitignoreMatcher.add(content);
       } else {
-        const prefix = path.relative(rootPath, dir);
+        const prefix = path.relative(rootPath, dir).replace(/\\/g, '/');
         this.gitignoreMatcher.add(prefixGitignoreRules(content, prefix));
       }
     } catch { /* no .gitignore in this directory */ }
@@ -185,7 +185,7 @@ export class FileWatcher {
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       const full = path.join(dir, entry.name);
-      const rel = path.relative(rootPath, full);
+      const rel = path.relative(rootPath, full).replace(/\\/g, '/');
       // Skip directories already ignored — no need to descend
       if (this.gitignoreMatcher.ignores(rel + '/')) continue;
       this.collectGitignores(full, rootPath);

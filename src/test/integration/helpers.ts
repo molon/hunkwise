@@ -20,7 +20,7 @@ export function hunkwiseGitEnv(root: string): NodeJS.ProcessEnv {
 
 export function gitListTracked(root: string): string[] {
   try {
-    const out = execSync('git ls-tree HEAD --name-only -r', {
+    const out = execSync('git -c core.quotepath=false ls-tree HEAD --name-only -r', {
       cwd: root,
       env: hunkwiseGitEnv(root),
       encoding: 'utf-8',
