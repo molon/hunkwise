@@ -263,6 +263,27 @@ describe('HunkwiseGit', () => {
       assert.ok(tracked.includes(f2));
       fs.rmSync(dir2, { recursive: true, force: true });
     });
+
+    it('handles non-ASCII file paths correctly', async () => {
+      const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hunkwise-nonascii-'));
+      const root = dir2;
+      const g2 = new HunkwiseGit(path.join(dir2, '.vscode', 'hunkwise'), root);
+      await g2.initGit();
+      const f1 = path.join(root, 'メール一覧.xlsx');
+      const f2 = path.join(root, 'sub', '日本語ファイル.txt');
+      fs.mkdirSync(path.join(root, 'sub'), { recursive: true });
+      await g2.snapshotBatch([
+        { filePath: f1, content: 'content1\n' },
+        { filePath: f2, content: 'content2\n' },
+      ]);
+      const tracked = await g2.listTrackedFiles();
+      assert.ok(tracked.includes(f1), `tracked should include ${f1}, got: ${tracked}`);
+      assert.ok(tracked.includes(f2), `tracked should include ${f2}, got: ${tracked}`);
+      // getBaseline should also work with non-ASCII paths
+      const baseline = await g2.getBaseline(f1);
+      assert.strictEqual(baseline, 'content1\n');
+      fs.rmSync(dir2, { recursive: true, force: true });
+    });
   });
 
   describe('settings', () => {

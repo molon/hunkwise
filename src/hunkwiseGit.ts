@@ -67,7 +67,7 @@ export class HunkwiseGit {
   }
 
   private async git(args: string[]): Promise<string> {
-    const { stdout } = await execFileAsync('git', args, {
+    const { stdout } = await execFileAsync('git', ['-c', 'core.quotepath=false', ...args], {
       cwd: this.workTree,
       env: this.env,
       maxBuffer: 10 * 1024 * 1024, // 10 MB — default 1 MB is too small for large files
