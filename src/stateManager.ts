@@ -106,14 +106,21 @@ export class StateManager {
         skippedNoBaseline.push(filePath);
         return;
       }
-      // Compare baseline with current disk content — only enter reviewing if there's a real diff
+      // Compare baseline with current disk content — enter reviewing if there's a real diff
+      // or if the file has been deleted (so the user can restore it via discard).
+      // Use a single readFile call to avoid TOCTOU race (existsSync + readFile).
       let diskContent: string | undefined;
-      try { diskContent = await fs.promises.readFile(filePath, 'utf-8'); } catch { /* file deleted or unreadable */ }
-      if (diskContent !== undefined && diskContent !== baseline) {
+      let fileDeleted = false;
+      try {
+        diskContent = await fs.promises.readFile(filePath, 'utf-8');
+      } catch (err: any) {
+        if (err?.code === 'ENOENT') { fileDeleted = true; } // file doesn't exist
+        // other errors (e.g. permissions) → diskContent stays undefined, treat as idle
+      }
+      if (fileDeleted || (diskContent !== undefined && diskContent !== baseline)) {
         this.state.set(filePath, { status: 'reviewing', baseline });
         reviewing.push(filePath);
       } else {
-        // No diff (or file deleted) — baseline is stored in git, no need to set reviewing
         idle.push(filePath);
       }
     }));
@@ -164,8 +171,13 @@ export class StateManager {
       const baseline = await g.getBaseline(filePath);
       if (baseline === undefined) return;
       let diskContent: string | undefined;
-      try { diskContent = await fs.promises.readFile(filePath, 'utf-8'); } catch { /* deleted or unreadable */ }
-      if (diskContent !== undefined && diskContent !== baseline) {
+      let fileDeleted = false;
+      try {
+        diskContent = await fs.promises.readFile(filePath, 'utf-8');
+      } catch (err: any) {
+        if (err?.code === 'ENOENT') { fileDeleted = true; }
+      }
+      if (fileDeleted || (diskContent !== undefined && diskContent !== baseline)) {
         this.state.set(filePath, { status: 'reviewing', baseline });
       }
     }));

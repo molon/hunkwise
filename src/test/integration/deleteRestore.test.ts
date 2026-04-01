@@ -334,4 +334,58 @@ suite('hunkwise delete & restore integration', function () {
     await waitForCondition(() => gitGetBaseline(root, rel) === 'modified\n', 5000);
     assert.strictEqual(gitGetBaseline(root, rel), 'modified\n', 'Git baseline should update after accept');
   });
+
+  // ── load/rebuild restores deleted files to reviewing ─────────────────────
+
+  test('deleted file enters reviewing after load (simulates restart)', async () => {
+    const root = getWorkspaceRoot();
+    const filePath = path.join(root, 'load-deleted.txt');
+
+    // Create file before enable → becomes baseline in git
+    writeFileExternally(filePath, 'will be deleted\n');
+    await enableHunkwise();
+
+    const rel = path.relative(root, filePath);
+    await waitForCondition(() => gitGetBaseline(root, rel) !== undefined, 5000);
+    assert.strictEqual(gitGetBaseline(root, rel), 'will be deleted\n');
+
+    const fw = getFileWatcher();
+    assert.ok(fw, 'FileWatcher should be available');
+    const sm = getStateManager();
+    assert.ok(sm, 'StateManager should be available');
+
+    // Suppress FileWatcher before deleting — prevents async onDiskDelete from
+    // racing with our manual state manipulation below.
+    fw.suppressAll();
+    try {
+      // Delete the file while FileWatcher is suppressed
+      fs.unlinkSync(filePath);
+      assert.ok(!fs.existsSync(filePath), 'File should be gone from disk');
+
+      // Drain any pending git ops queued before suppress
+      await sm.flush();
+
+      // Clear in-memory state to simulate fresh start — baselines remain in git.
+      // Uses internal state map directly because there is no public clear-without-git API;
+      // rebuildState() does the same via this.state.clear().
+      (sm as any).state.clear();
+      assert.ok(!sm.getFile(filePath), 'File should be cleared from memory');
+
+      // Call load() with shouldIgnore matching production activation
+      await sm.load((fp: string, isDir?: boolean) => fw.shouldIgnore(fp, isDir));
+    } finally {
+      fw.resumeAll();
+    }
+
+    const fileState = sm.getFile(filePath);
+    assert.ok(fileState, 'Deleted file should be in state map after load');
+    assert.strictEqual(fileState?.status, 'reviewing', 'Deleted file should be in reviewing state');
+    assert.strictEqual(fileState?.baseline, 'will be deleted\n', 'Baseline should be preserved');
+
+    // Verify the file can be restored via discard
+    await discardFileByPath(sm, fw, filePath, () => {});
+
+    assert.ok(fs.existsSync(filePath), 'File should be restored on disk after discard');
+    assert.strictEqual(fs.readFileSync(filePath, 'utf-8'), 'will be deleted\n');
+  });
 });

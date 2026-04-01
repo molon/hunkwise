@@ -102,7 +102,7 @@ if [ $attempt -ge $max_attempts ]; then
 fi
 ```
 
-Typical wait: 1-5 minutes. After 10 minutes (20 attempts), stop and report to user.
+Typical wait: 1-5 minutes. If poll times out after 20 attempts, **re-request review and restart the poll** — do not stop the loop. Only report to user after 3 consecutive poll timeouts.
 
 ## Reply to Comment Thread
 
