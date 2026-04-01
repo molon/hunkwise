@@ -57,6 +57,39 @@ export class StateManager {
   get dir(): string | undefined { return this.hunkwiseDir; }
   get git(): HunkwiseGit | undefined { return this._git; }
 
+  /**
+   * Walk workspace and collect files that exist on disk but are not tracked in git.
+   * These are externally created new files that should be shown with null baseline.
+   */
+  private async collectUntrackedFiles(
+    trackedSet: Set<string>,
+    shouldIgnore?: (filePath: string, isDirectory?: boolean) => boolean
+  ): Promise<string[]> {
+    if (!this.workspaceRoot) return [];
+    const root = this.workspaceRoot;
+    const collect = async (dir: string): Promise<string[]> => {
+      let results: string[] = [];
+      let entries: fs.Dirent[];
+      try {
+        entries = await fs.promises.readdir(dir, { withFileTypes: true });
+      } catch {
+        return results;
+      }
+      for (const entry of entries) {
+        const full = path.join(dir, entry.name);
+        const isDir = entry.isDirectory();
+        if (shouldIgnore?.(full, isDir)) continue;
+        if (isDir) {
+          results = results.concat(await collect(full));
+        } else if (entry.isFile() && !trackedSet.has(full)) {
+          results.push(full);
+        }
+      }
+      return results;
+    };
+    return collect(root);
+  }
+
   // ── init / load ───────────────────────────────────────────────────────────
 
   private ensureGit(): HunkwiseGit | undefined {
@@ -138,6 +171,16 @@ export class StateManager {
       log(`load: removing ${ignored.length} ignored file(s) from git: ${logFileList(ignored, this.workspaceRoot)}`);
       this.gitQueue = this.gitQueue.then(() => g.removeFileBatch(ignored)).catch(err => { log(`git queue error: ${err}`); });
     }
+
+    // Detect files on disk not tracked in git — these are externally created new files
+    const trackedSet = new Set(tracked);
+    const untrackedFiles = await this.collectUntrackedFiles(trackedSet, shouldIgnore);
+    if (untrackedFiles.length > 0) {
+      log(`load: ${untrackedFiles.length} untracked new file(s): ${logFileList(untrackedFiles, this.workspaceRoot)}`);
+      for (const fp of untrackedFiles) {
+        this.state.set(fp, { status: 'reviewing', baseline: null });
+      }
+    }
   }
 
   /**
@@ -181,6 +224,13 @@ export class StateManager {
         this.state.set(filePath, { status: 'reviewing', baseline });
       }
     }));
+
+    // Detect files on disk not tracked in git — these are externally created new files
+    const trackedSet = new Set(tracked);
+    const untrackedFiles = await this.collectUntrackedFiles(trackedSet, shouldIgnore);
+    for (const fp of untrackedFiles) {
+      this.state.set(fp, { status: 'reviewing', baseline: null });
+    }
 
     // Compare old vs new state
     const added: string[] = [];

@@ -1,3 +1,4 @@
+import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import assert from 'assert';
@@ -184,6 +185,33 @@ suite('hunkwise file watcher integration', function () {
       assert.ok(state, `"${f}" should be in state`);
       assert.strictEqual(state?.baseline, null, `"${f}" should have null baseline (new file)`);
     }
+  });
+
+  test('refresh preserves externally created new files (null baseline)', async () => {
+    const root = getWorkspaceRoot();
+    await enableHunkwise();
+
+    // Create a file externally after enable — simulates Finder drag-in
+    const filePath = path.join(root, 'finder-file.txt');
+    writeFileExternally(filePath, 'dragged in from Finder\n');
+
+    const sm = getStateManager();
+    assert.ok(sm, 'StateManager should be available');
+
+    // Wait for FileWatcher to detect and enter reviewing with null baseline
+    await waitForCondition(() => {
+      const f = sm.getFile(filePath);
+      return f?.status === 'reviewing' && f?.baseline === null;
+    }, 8000);
+
+    // Execute the refresh command (same as clicking the refresh button in the panel)
+    await vscode.commands.executeCommand('hunkwise.refresh');
+
+    // After refresh, the new file should still be in reviewing state with null baseline
+    const fileState = sm.getFile(filePath);
+    assert.ok(fileState, 'New file should still exist in state after refresh');
+    assert.strictEqual(fileState?.status, 'reviewing', 'New file should still be reviewing after refresh');
+    assert.strictEqual(fileState?.baseline, null, 'New file should still have null baseline after refresh');
   });
 
   test('externally created empty files enter reviewing with null baseline', async () => {
