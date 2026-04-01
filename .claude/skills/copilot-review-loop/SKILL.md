@@ -83,11 +83,15 @@ This requires deep comprehension of the code, not mechanical grep. Read the rele
 
 Fix all instances proactively. Group same-class fixes in one commit.
 
-## Step 3: Implement Fixes
+## Step 3: Implement Fixes (TDD)
 
-- Read the affected file first
-- Make minimal, targeted changes per comment
-- Group same-class fixes together; do not batch unrelated fixes
+Follow test-driven development. Invoke the `superpowers:test-driven-development` skill for the full TDD workflow:
+
+1. **Write or update tests first** — add integration/unit tests that cover the expected behavior before implementing the fix. Run them to confirm they fail for the right reason.
+2. **Implement the fix** — make minimal, targeted changes per comment.
+3. **Run tests** — verify the new tests pass and no existing tests break.
+
+Group same-class fixes together; do not batch unrelated fixes.
 
 ## Step 4: Run Tests
 
@@ -125,8 +129,21 @@ Log each poll attempt with timestamp and status. Timeout after 20 attempts (~10 
 
 After review completes -> back to **Step 1**. If 0 unhandled -> **DONE**.
 
+## Error Handling & Resilience
+
+The loop must never stop due to transient errors. Apply these rules:
+
+- **gh api failures**: Retry up to 3 times with 10-second intervals before giving up on a single API call.
+- **Poll timeout**: If polling times out (20 attempts), re-request review and restart the poll — do not stop.
+- **Test failures**: Diagnose and fix, then re-run. Never abandon the loop due to a failing test.
+- **Commit/push failures**: Check `git status`, resolve conflicts or issues, then retry.
+- **Any unexpected error**: Log the error, attempt recovery, and continue the loop. Only stop if the same error persists after 3 retries or if the error is clearly unrecoverable (e.g., repo deleted, auth expired).
+
+The goal is autonomous completion — the user should be able to walk away and find the loop finished.
+
 ## Key Rules
 
+- **TDD first** — write or update tests before implementing fixes; confirm they fail, then implement
 - **Evaluate before implementing** — read the code first; push back with reasoning when the reviewer is wrong
 - **Scan by understanding, not grep** — trace assumptions and data flow to find the same class of bug across the codebase
 - **Tests must pass** — never commit broken code; run integration tests for behavioral changes
@@ -134,6 +151,7 @@ After review completes -> back to **Step 1**. If 0 unhandled -> **DONE**.
 - **Resolve after replying** — only resolve threads already addressed
 - **GraphQL for thread detection** — REST misses intra-thread replies
 - **Poll `requested_reviewers`, not review count** — prevents stuck loops
+- **Never stop on transient errors** — retry API calls, re-request reviews, recover and continue
 
 ## References
 
