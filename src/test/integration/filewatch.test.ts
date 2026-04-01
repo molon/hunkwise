@@ -1,10 +1,11 @@
+import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import assert from 'assert';
 import {
   getWorkspaceRoot, gitListTracked, gitGetBaseline,
   sleep, waitForCondition, enableHunkwise, disableHunkwise,
-  writeFileExternally, cleanWorkspace, getStateManager,
+  writeFileExternally, cleanWorkspace, getStateManager, getFileWatcher,
 } from './helpers';
 
 // ── Test suite ────────────────────────────────────────────────────────────────
@@ -183,6 +184,61 @@ suite('hunkwise file watcher integration', function () {
       const state = sm.getFile(path.join(root, f));
       assert.ok(state, `"${f}" should be in state`);
       assert.strictEqual(state?.baseline, null, `"${f}" should have null baseline (new file)`);
+    }
+  });
+
+  test('refresh preserves externally created new files (null baseline)', async () => {
+    const root = getWorkspaceRoot();
+    await enableHunkwise();
+
+    // Create a file externally after enable — simulates Finder drag-in
+    const filePath = path.join(root, 'finder-file.txt');
+    writeFileExternally(filePath, 'dragged in from Finder\n');
+
+    const sm = getStateManager();
+    assert.ok(sm, 'StateManager should be available');
+
+    // Wait for FileWatcher to detect and enter reviewing with null baseline
+    await waitForCondition(() => {
+      const f = sm.getFile(filePath);
+      return f?.status === 'reviewing' && f?.baseline === null;
+    }, 8000);
+
+    // Execute the refresh command (same as clicking the refresh button in the panel)
+    await vscode.commands.executeCommand('hunkwise.refresh');
+
+    // After refresh, the new file should still be in reviewing state with null baseline
+    const fileState = sm.getFile(filePath);
+    assert.ok(fileState, 'New file should still exist in state after refresh');
+    assert.strictEqual(fileState?.status, 'reviewing', 'New file should still be reviewing after refresh');
+    assert.strictEqual(fileState?.baseline, null, 'New file should still have null baseline after refresh');
+  });
+
+  test('refresh does not pick up binary files as new', async () => {
+    const root = getWorkspaceRoot();
+    await enableHunkwise();
+
+    const sm = getStateManager();
+    assert.ok(sm, 'StateManager should be available');
+    const fw = getFileWatcher();
+    assert.ok(fw, 'FileWatcher should be available');
+
+    // Suppress watcher to avoid race between create event and refresh
+    fw.suppressAll();
+    try {
+      // Create a binary file (not valid UTF-8, contains null bytes)
+      const binaryFile = path.join(root, 'image.bin');
+      const binaryContent = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x80, 0xff, 0xfe]);
+      fs.writeFileSync(binaryFile, binaryContent);
+
+      // Execute refresh — collectUntrackedFiles should skip the binary file
+      await vscode.commands.executeCommand('hunkwise.refresh');
+
+      // Binary file should NOT appear in state
+      const fileState = sm.getFile(binaryFile);
+      assert.ok(!fileState, 'Binary file should not be tracked as a new file after refresh');
+    } finally {
+      fw.resumeAll();
     }
   });
 
