@@ -83,10 +83,16 @@ export class StateManager {
           const nested = await collect(full);
           if (nested.length) results.push(...nested);
         } else if (entry.isFile() && !trackedSet.has(full)) {
-          // Skip binary/unreadable files — check for null bytes (same heuristic as git)
+          // Skip binary/unreadable files — read first 8KB and check for null bytes (same heuristic as git)
           try {
-            const content = await fs.promises.readFile(full, 'utf-8');
-            if (!content.includes('\0')) results.push(full);
+            const fd = await fs.promises.open(full, 'r');
+            try {
+              const buf = Buffer.alloc(8192);
+              const { bytesRead } = await fd.read(buf, 0, 8192, 0);
+              if (!buf.subarray(0, bytesRead).includes(0)) results.push(full);
+            } finally {
+              await fd.close();
+            }
           } catch { /* skip unreadable */ }
         }
       }
@@ -263,7 +269,7 @@ export class StateManager {
       log('rebuildState: no differences found — memory state matches git');
     } else {
       log(`rebuildState: differences found:`);
-      if (added.length > 0) log(`  added (in git but was missing from memory): ${added.join(', ')}`);
+      if (added.length > 0) log(`  added (found in git or on disk but was missing from memory): ${added.join(', ')}`);
       if (removed.length > 0) log(`  removed (in memory but not in git/disk): ${removed.join(', ')}`);
       if (baselineChanged.length > 0) log(`  baseline changed: ${baselineChanged.join(', ')}`);
       if (statusChanged.length > 0) log(`  status changed: ${statusChanged.join(', ')}`);
