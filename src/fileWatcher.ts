@@ -82,13 +82,13 @@ export class FileWatcher {
     this.disposables.push(
       vscode.workspace.onWillDeleteFiles(e => {
         for (const uri of e.files) {
-          this.pendingUserDeletes.add(uri.fsPath);
+          this.pendingUserDeletes.add(normalizePath(uri.fsPath));
         }
       }),
       vscode.workspace.onDidDeleteFiles(e => {
         setTimeout(() => {
           for (const uri of e.files) {
-            this.pendingUserDeletes.delete(uri.fsPath);
+            this.pendingUserDeletes.delete(normalizePath(uri.fsPath));
           }
         }, 500);
       }),
@@ -299,7 +299,7 @@ export class FileWatcher {
     }
 
     // Check if this was a manual create in VSCode (editor buffer matches disk)
-    const openDoc = vscode.workspace.textDocuments.find(d => d.uri.fsPath === filePath);
+    const openDoc = vscode.workspace.textDocuments.find(d => normalizePath(d.uri.fsPath) === filePath);
     const bufferMatch = openDoc ? openDoc.getText() === diskContent : false;
     log(`onDiskCreate(${basename}): openDoc=${!!openDoc}, bufferMatch=${bufferMatch}`);
     if (openDoc && bufferMatch) {
@@ -399,7 +399,7 @@ export class FileWatcher {
     if (!git) return;
 
     // Check if this was a manual save in VSCode (editor buffer matches disk)
-    const openDoc = vscode.workspace.textDocuments.find(d => d.uri.fsPath === filePath);
+    const openDoc = vscode.workspace.textDocuments.find(d => normalizePath(d.uri.fsPath) === filePath);
     if (openDoc && openDoc.getText() === diskContent) {
       // User saved in VSCode — accept into baseline, no hunk
       this.stateManager.snapshotFile(filePath, diskContent);

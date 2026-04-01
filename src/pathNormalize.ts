@@ -14,5 +14,12 @@
  * file with an NFC path works even if the file was created with NFD.
  */
 export function normalizePath(p: string): string {
-  return p.normalize('NFC');
+  // Only normalize on macOS where APFS is normalization-insensitive and
+  // git (core.precomposeUnicode=true) outputs NFC while fs.readdir may
+  // return NFD. On Linux, NFC and NFD can be distinct filenames —
+  // normalizing unconditionally would conflate different paths.
+  if (process.platform === 'darwin') {
+    return p.normalize('NFC');
+  }
+  return p;
 }

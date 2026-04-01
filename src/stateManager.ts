@@ -84,7 +84,14 @@ export class StateManager {
           const nested = await collect(full);
           if (nested.length) results.push(...nested);
         } else if (entry.isFile() && !trackedSet.has(full)) {
-          results.push(full);
+          try {
+            await fs.promises.access(full, fs.constants.R_OK);
+            results.push(full);
+          } catch {
+            // Skip unreadable files (e.g. permission errors) to avoid
+            // downstream failures when reading content as UTF-8
+            continue;
+          }
         }
       }
       return results;
@@ -272,10 +279,11 @@ export class StateManager {
   // ── file state ────────────────────────────────────────────────────────────
 
   getFile(filePath: string): FileState | undefined {
-    return this.state.get(filePath);
+    return this.state.get(normalizePath(filePath));
   }
 
   setFile(filePath: string, state: FileState, skipSnapshot?: boolean): void {
+    filePath = normalizePath(filePath);
     // Clone old state so callers mutating the FileState object don't corrupt the rollback snapshot
     const oldState = this.state.has(filePath) ? { ...this.state.get(filePath)! } : undefined;
     this.state.set(filePath, state);
@@ -294,6 +302,7 @@ export class StateManager {
   }
 
   removeFile(filePath: string): void {
+    filePath = normalizePath(filePath);
     // Clone old state so the rollback has an independent snapshot
     const oldState = this.state.has(filePath) ? { ...this.state.get(filePath)! } : undefined;
     this.state.delete(filePath);
@@ -327,11 +336,11 @@ export class StateManager {
       this.state.set(newFilePath, fileState);
     }
     // Also check for directory children (entries whose path starts with oldFilePath + sep)
-    for (const [fp, fs] of [...this.state.entries()]) {
+    for (const [fp, childState] of [...this.state.entries()]) {
       if (fp.startsWith(oldPrefix)) {
         this.state.delete(fp);
         const newFp = newFilePath + fp.slice(oldFilePath.length);
-        this.state.set(newFp, fs);
+        this.state.set(newFp, childState);
         hasDirChildren = true;
       }
     }
@@ -365,7 +374,7 @@ export class StateManager {
   }
 
   isReviewing(filePath: string): boolean {
-    return this.state.get(filePath)?.status === 'reviewing';
+    return this.state.get(normalizePath(filePath))?.status === 'reviewing';
   }
 
   /**
@@ -375,6 +384,7 @@ export class StateManager {
    * is assumed to already be correct (e.g. hunks resolved to 0, or discard).
    */
   exitReviewing(filePath: string, newBaseline?: string | null): void {
+    filePath = normalizePath(filePath);
     const oldState = this.state.has(filePath) ? { ...this.state.get(filePath)! } : undefined;
     this.state.delete(filePath);
     if (newBaseline !== undefined && newBaseline !== null) {
