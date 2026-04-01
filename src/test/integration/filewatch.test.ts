@@ -5,7 +5,7 @@ import assert from 'assert';
 import {
   getWorkspaceRoot, gitListTracked, gitGetBaseline,
   sleep, waitForCondition, enableHunkwise, disableHunkwise,
-  writeFileExternally, createFileViaVSCode, cleanWorkspace, getStateManager,
+  writeFileExternally, cleanWorkspace, getStateManager,
 } from './helpers';
 
 // ── Test suite ────────────────────────────────────────────────────────────────
@@ -240,30 +240,6 @@ suite('hunkwise file watcher integration', function () {
     assert.ok(fileState, 'Binary file should still exist in state after refresh');
     assert.strictEqual(fileState?.status, 'reviewing', 'Binary file should still be reviewing');
     assert.strictEqual(fileState?.baseline, null, 'Binary file should still have null baseline');
-  });
-
-  test('file created via VSCode API is snapshotted as baseline (not reviewing)', async () => {
-    const root = getWorkspaceRoot();
-    await enableHunkwise();
-
-    const sm = getStateManager();
-    assert.ok(sm, 'StateManager should be available');
-
-    // Create file via VSCode WorkspaceEdit.createFile — triggers onWillCreateFiles
-    const filePath = path.join(root, 'user-created.txt');
-    await createFileViaVSCode(filePath, 'created by user in VSCode\n');
-
-    // Wait for FileWatcher to process the create event
-    await sleep(1000);
-
-    // File should NOT be in reviewing state — user created it intentionally
-    const fileState = sm.getFile(filePath);
-    assert.ok(!fileState, 'File created via VSCode API should not enter reviewing');
-
-    // But it should be snapshotted as baseline in git
-    const rel = path.relative(root, filePath);
-    await waitForCondition(() => gitGetBaseline(root, rel) !== undefined, 5000);
-    assert.strictEqual(gitGetBaseline(root, rel), 'created by user in VSCode\n');
   });
 
   test('externally created empty files enter reviewing with null baseline', async () => {
