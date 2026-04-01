@@ -80,9 +80,14 @@ export class StateManager {
         const isDir = entry.isDirectory();
         if (shouldIgnore?.(full, isDir)) continue;
         if (isDir) {
-          results = results.concat(await collect(full));
+          const nested = await collect(full);
+          if (nested.length) results.push(...nested);
         } else if (entry.isFile() && !trackedSet.has(full)) {
-          results.push(full);
+          // Skip binary/unreadable files — check for null bytes (same heuristic as git)
+          try {
+            const content = await fs.promises.readFile(full, 'utf-8');
+            if (!content.includes('\0')) results.push(full);
+          } catch { /* skip unreadable */ }
         }
       }
       return results;

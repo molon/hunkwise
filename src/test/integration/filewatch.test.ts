@@ -214,6 +214,29 @@ suite('hunkwise file watcher integration', function () {
     assert.strictEqual(fileState?.baseline, null, 'New file should still have null baseline after refresh');
   });
 
+  test('refresh does not pick up binary files as new', async () => {
+    const root = getWorkspaceRoot();
+    await enableHunkwise();
+
+    // Create a binary file externally (not valid UTF-8)
+    const binaryFile = path.join(root, 'image.bin');
+    const binaryContent = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x80, 0xff, 0xfe]);
+    fs.writeFileSync(binaryFile, binaryContent);
+
+    const sm = getStateManager();
+    assert.ok(sm, 'StateManager should be available');
+
+    // Give FileWatcher time to potentially detect it
+    await sleep(1000);
+
+    // Execute refresh
+    await vscode.commands.executeCommand('hunkwise.refresh');
+
+    // Binary file should NOT appear in state
+    const fileState = sm.getFile(binaryFile);
+    assert.ok(!fileState, 'Binary file should not be tracked as a new file after refresh');
+  });
+
   test('externally created empty files enter reviewing with null baseline', async () => {
     const root = getWorkspaceRoot();
     await enableHunkwise();
