@@ -172,7 +172,7 @@ export class FileWatcher {
       if (dir === rootPath) {
         this.gitignoreMatcher.add(content);
       } else {
-        const prefix = path.relative(rootPath, dir);
+        const prefix = path.relative(rootPath, dir).replace(/\\/g, '/');
         this.gitignoreMatcher.add(prefixGitignoreRules(content, prefix));
       }
     } catch { /* no .gitignore in this directory */ }
@@ -185,7 +185,7 @@ export class FileWatcher {
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       const full = path.join(dir, entry.name);
-      const rel = path.relative(rootPath, full);
+      const rel = path.relative(rootPath, full).replace(/\\/g, '/');
       // Skip directories already ignored — no need to descend
       if (this.gitignoreMatcher.ignores(rel + '/')) continue;
       this.collectGitignores(full, rootPath);
@@ -211,6 +211,8 @@ export class FileWatcher {
   }
 
   shouldIgnore(filePath: string, isDirectory?: boolean): boolean {
+    if (!filePath) return false;
+
     const hunkwiseDir = this.stateManager.dir;
     if (hunkwiseDir && filePath.startsWith(hunkwiseDir + path.sep)) return true;
     if (hunkwiseDir && filePath === hunkwiseDir) return true;
@@ -218,7 +220,23 @@ export class FileWatcher {
     const rootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!rootPath) return false;
 
-    let relPath = path.relative(rootPath, filePath);
+    let relPath = '';
+    try {
+      relPath = vscode.workspace.asRelativePath(vscode.Uri.file(filePath), false) || '';
+    } catch {
+      relPath = '';
+    }
+
+    if (!relPath) {
+      try {
+        relPath = path.relative(rootPath, filePath);
+      } catch {
+        relPath = '';
+      }
+    }
+
+    relPath = relPath.replace(/\\/g, '/');
+    if (!relPath || relPath === '.') return false;
     if (relPath.startsWith('..')) return false;
 
     // The `ignore` library requires a trailing slash to match directory-only
