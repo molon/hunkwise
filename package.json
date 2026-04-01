@@ -86,6 +86,7 @@
   },
   "devDependencies": {
     "@types/diff": "^5.x",
+    "@types/mocha": "^10.0.10",
     "@types/node": "^20.19.37",
     "@types/vscode": "^1.90.0",
     "@vscode/test-cli": "^0.0.12",
