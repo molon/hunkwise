@@ -5,7 +5,7 @@ import assert from 'assert';
 import {
   getWorkspaceRoot, gitListTracked, gitGetBaseline,
   sleep, waitForCondition, enableHunkwise, disableHunkwise,
-  writeFileExternally, cleanWorkspace, getStateManager,
+  writeFileExternally, cleanWorkspace, getStateManager, getFileWatcher,
 } from './helpers';
 
 // ── Test suite ────────────────────────────────────────────────────────────────
@@ -218,23 +218,28 @@ suite('hunkwise file watcher integration', function () {
     const root = getWorkspaceRoot();
     await enableHunkwise();
 
-    // Create a binary file externally (not valid UTF-8)
-    const binaryFile = path.join(root, 'image.bin');
-    const binaryContent = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x80, 0xff, 0xfe]);
-    fs.writeFileSync(binaryFile, binaryContent);
-
     const sm = getStateManager();
     assert.ok(sm, 'StateManager should be available');
+    const fw = getFileWatcher();
+    assert.ok(fw, 'FileWatcher should be available');
 
-    // Give FileWatcher time to potentially detect it
-    await sleep(1000);
+    // Suppress watcher to avoid race between create event and refresh
+    fw.suppressAll();
+    try {
+      // Create a binary file (not valid UTF-8, contains null bytes)
+      const binaryFile = path.join(root, 'image.bin');
+      const binaryContent = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x80, 0xff, 0xfe]);
+      fs.writeFileSync(binaryFile, binaryContent);
 
-    // Execute refresh
-    await vscode.commands.executeCommand('hunkwise.refresh');
+      // Execute refresh — collectUntrackedFiles should skip the binary file
+      await vscode.commands.executeCommand('hunkwise.refresh');
 
-    // Binary file should NOT appear in state
-    const fileState = sm.getFile(binaryFile);
-    assert.ok(!fileState, 'Binary file should not be tracked as a new file after refresh');
+      // Binary file should NOT appear in state
+      const fileState = sm.getFile(binaryFile);
+      assert.ok(!fileState, 'Binary file should not be tracked as a new file after refresh');
+    } finally {
+      fw.resumeAll();
+    }
   });
 
   test('externally created empty files enter reviewing with null baseline', async () => {
