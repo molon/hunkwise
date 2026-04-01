@@ -1,10 +1,12 @@
 # hunkwise
 
+<!-- markdownlint-disable MD033 -->
 <p align="center">
   <img src="media/icon.png" width="128" alt="hunkwise logo">
 </p>
 
 <p align="center"><em>Your future self will thank you. Or blame you. It depends on the diff.</em></p>
+<!-- markdownlint-enable MD033 -->
 
 Per-hunk Accept/Discard for any file change in VSCode.
 
