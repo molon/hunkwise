@@ -83,17 +83,7 @@ export class StateManager {
           const nested = await collect(full);
           if (nested.length) results.push(...nested);
         } else if (entry.isFile() && !trackedSet.has(full)) {
-          // Skip binary/unreadable files — read first 8KB and check for null bytes (same heuristic as git)
-          try {
-            const fd = await fs.promises.open(full, 'r');
-            try {
-              const buf = Buffer.alloc(8192);
-              const { bytesRead } = await fd.read(buf, 0, 8192, 0);
-              if (!buf.subarray(0, bytesRead).includes(0)) results.push(full);
-            } finally {
-              await fd.close();
-            }
-          } catch { /* skip unreadable */ }
+          results.push(full);
         }
       }
       return results;

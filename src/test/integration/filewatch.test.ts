@@ -5,7 +5,7 @@ import assert from 'assert';
 import {
   getWorkspaceRoot, gitListTracked, gitGetBaseline,
   sleep, waitForCondition, enableHunkwise, disableHunkwise,
-  writeFileExternally, cleanWorkspace, getStateManager, getFileWatcher,
+  writeFileExternally, cleanWorkspace, getStateManager,
 } from './helpers';
 
 // ── Test suite ────────────────────────────────────────────────────────────────
@@ -214,32 +214,32 @@ suite('hunkwise file watcher integration', function () {
     assert.strictEqual(fileState?.baseline, null, 'New file should still have null baseline after refresh');
   });
 
-  test('refresh does not pick up binary files as new', async () => {
+  test('refresh preserves binary files detected by FileWatcher as new', async () => {
     const root = getWorkspaceRoot();
     await enableHunkwise();
 
+    // Create a binary file externally (e.g. .xlsx dragged from Finder)
+    const binaryFile = path.join(root, 'report.xlsx');
+    const binaryContent = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0x00, 0x08, 0x00]);
+    fs.writeFileSync(binaryFile, binaryContent);
+
     const sm = getStateManager();
     assert.ok(sm, 'StateManager should be available');
-    const fw = getFileWatcher();
-    assert.ok(fw, 'FileWatcher should be available');
 
-    // Suppress watcher to avoid race between create event and refresh
-    fw.suppressAll();
-    try {
-      // Create a binary file (not valid UTF-8, contains null bytes)
-      const binaryFile = path.join(root, 'image.bin');
-      const binaryContent = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x80, 0xff, 0xfe]);
-      fs.writeFileSync(binaryFile, binaryContent);
+    // Wait for FileWatcher to detect and enter reviewing with null baseline
+    await waitForCondition(() => {
+      const f = sm.getFile(binaryFile);
+      return f?.status === 'reviewing' && f?.baseline === null;
+    }, 8000);
 
-      // Execute refresh — collectUntrackedFiles should skip the binary file
-      await vscode.commands.executeCommand('hunkwise.refresh');
+    // Execute refresh
+    await vscode.commands.executeCommand('hunkwise.refresh');
 
-      // Binary file should NOT appear in state
-      const fileState = sm.getFile(binaryFile);
-      assert.ok(!fileState, 'Binary file should not be tracked as a new file after refresh');
-    } finally {
-      fw.resumeAll();
-    }
+    // Binary file should STILL be in state — consistent with onDiskCreate behavior
+    const fileState = sm.getFile(binaryFile);
+    assert.ok(fileState, 'Binary file should still exist in state after refresh');
+    assert.strictEqual(fileState?.status, 'reviewing', 'Binary file should still be reviewing');
+    assert.strictEqual(fileState?.baseline, null, 'Binary file should still have null baseline');
   });
 
   test('externally created empty files enter reviewing with null baseline', async () => {
