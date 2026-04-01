@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import { normalizePath } from './pathNormalize';
 
 const execFileAsync = promisify(execFile);
 
@@ -184,7 +185,7 @@ export class HunkwiseGit {
    */
   async snapshot(filePath: string, content: string): Promise<void> {
     await this.initGit();
-    const rel = path.relative(this.workTree, filePath);
+    const rel = normalizePath(path.relative(this.workTree, filePath));
     try {
       const hash = await new Promise<string>((resolve, reject) => {
         const child = execFile(
@@ -204,20 +205,44 @@ export class HunkwiseGit {
   }
 
   /**
-   * Rename a file's baseline entry in the git index and commit.
-   * Reuses the existing blob hash — no content re-hashing needed.
+   * Rename a file (or all files under a directory) in the git index and commit.
+   * Reuses existing blob hashes — no content re-hashing needed.
    */
   async renameFile(oldFilePath: string, newFilePath: string): Promise<void> {
     await this.initGit();
-    const oldRel = path.relative(this.workTree, oldFilePath);
-    const newRel = path.relative(this.workTree, newFilePath);
+    const oldRel = normalizePath(path.relative(this.workTree, oldFilePath));
+    const newRel = normalizePath(path.relative(this.workTree, newFilePath));
     try {
+      // ls-files returns all entries matching the path (a single file or all files under a directory)
       const lsOut = await this.git(['ls-files', '--stage', '--', oldRel]);
-      const match = lsOut.trim().match(/^(\d+) ([0-9a-f]+) \d+\t/);
-      if (!match) return; // not tracked — nothing to rename
-      const [, mode, hash] = match;
-      await this.git(['update-index', '--force-remove', '--', oldRel]);
-      await this.git(['update-index', '--add', '--cacheinfo', `${mode},${hash},${newRel}`]);
+      const lines = lsOut.trim().split('\n').filter(Boolean);
+      if (lines.length === 0) return; // not tracked — nothing to rename
+
+      // Parse all matching entries
+      const entries: { mode: string; hash: string; entryRel: string }[] = [];
+      for (const line of lines) {
+        const m = line.match(/^(\d+) ([0-9a-f]+) \d+\t(.+)$/);
+        if (!m) continue;
+        entries.push({ mode: m[1], hash: m[2], entryRel: normalizePath(m[3]) });
+      }
+      if (entries.length === 0) return;
+
+      // Remove all old entries
+      const oldPaths = entries.map(e => e.entryRel);
+      const CHUNK = 200;
+      for (let i = 0; i < oldPaths.length; i += CHUNK) {
+        await this.git(['update-index', '--force-remove', '--', ...oldPaths.slice(i, i + CHUNK)]);
+      }
+
+      // Add entries with new paths — replace oldRel prefix with newRel
+      for (let i = 0; i < entries.length; i += CHUNK) {
+        const cacheArgs = entries.slice(i, i + CHUNK).flatMap(({ mode, hash, entryRel }) => {
+          const suffix = entryRel === oldRel ? '' : entryRel.slice(oldRel.length);
+          const renamed = newRel + suffix;
+          return ['--add', '--cacheinfo', `${mode},${hash},${renamed}`];
+        });
+        await this.git(['update-index', ...cacheArgs]);
+      }
       await this.commit();
     } catch (err) {
       this.log(`renameFile failed (${path.relative(this.workTree, oldFilePath)} → ${path.relative(this.workTree, newFilePath)}): ${err}`);
@@ -230,7 +255,7 @@ export class HunkwiseGit {
    */
   async removeFile(filePath: string): Promise<void> {
     await this.initGit();
-    const rel = path.relative(this.workTree, filePath);
+    const rel = normalizePath(path.relative(this.workTree, filePath));
     try {
       const lsOut = await this.git(['ls-files', '--stage', '--', rel]);
       if (!lsOut.trim()) return; // not tracked — nothing to remove
@@ -254,7 +279,7 @@ export class HunkwiseGit {
       const entries = await Promise.all(
         files.map(({ filePath, content }) =>
           new Promise<{ rel: string; hash: string }>((resolve, reject) => {
-            const rel = path.relative(this.workTree, filePath);
+            const rel = normalizePath(path.relative(this.workTree, filePath));
             const child = execFile(
               'git',
               ['hash-object', '-w', '--stdin'],
@@ -285,7 +310,7 @@ export class HunkwiseGit {
     if (filePaths.length === 0) return;
     await this.initGit();
     try {
-      const rels = filePaths.map(fp => path.relative(this.workTree, fp));
+      const rels = filePaths.map(fp => normalizePath(path.relative(this.workTree, fp)));
       // Chunk to avoid exceeding OS argument length limits (~250KB on macOS)
       const CHUNK = 200;
       for (let i = 0; i < rels.length; i += CHUNK) {
@@ -311,7 +336,7 @@ export class HunkwiseGit {
    */
   async getBaseline(filePath: string): Promise<string | undefined> {
     await this.initGit();
-    const rel = path.relative(this.workTree, filePath);
+    const rel = normalizePath(path.relative(this.workTree, filePath));
     try {
       return await this.git(['show', `:${rel}`]);
     } catch {
@@ -330,7 +355,7 @@ export class HunkwiseGit {
         .split('\n')
         .map(l => l.trim())
         .filter(Boolean)
-        .map(rel => path.join(this.workTree, rel));
+        .map(rel => normalizePath(path.join(this.workTree, rel)));
     } catch {
       return [];
     }

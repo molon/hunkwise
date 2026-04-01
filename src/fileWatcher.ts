@@ -7,6 +7,7 @@ type Ignore = import('ignore').Ignore;
 import { StateManager } from './stateManager';
 import { computeHunks } from './diffEngine';
 import { log } from './log';
+import { normalizePath } from './pathNormalize';
 
 // Transform gitignore rules from a sub-directory so they work in a single
 // root-level matcher. Adds the directory's relative path as prefix, handling
@@ -97,8 +98,8 @@ export class FileWatcher {
       // the new file doesn't exist on disk yet when onWill fires.
       vscode.workspace.onWillRenameFiles(e => {
         for (const { oldUri, newUri } of e.files) {
-          const oldPath = oldUri.fsPath;
-          const newPath = newUri.fsPath;
+          const oldPath = normalizePath(oldUri.fsPath);
+          const newPath = normalizePath(newUri.fsPath);
           if (!this.stateManager.enabled) continue;
           log(`rename: ${path.basename(oldPath)} → ${path.basename(newPath)}`);
           this.pendingRenameOldPaths.add(oldPath);
@@ -109,9 +110,9 @@ export class FileWatcher {
       vscode.workspace.onDidRenameFiles(e => {
         let needsRefresh = false;
         for (const { oldUri, newUri } of e.files) {
-          this.pendingRenameOldPaths.delete(oldUri.fsPath);
-          this.selfEditFiles.delete(newUri.fsPath);
-          if (this.stateManager.getFile(newUri.fsPath)) {
+          this.pendingRenameOldPaths.delete(normalizePath(oldUri.fsPath));
+          this.selfEditFiles.delete(normalizePath(newUri.fsPath));
+          if (this.stateManager.getFile(normalizePath(newUri.fsPath))) {
             needsRefresh = true;
           }
         }
@@ -203,11 +204,11 @@ export class FileWatcher {
   }
 
   markSelfEdit(filePath: string): void {
-    this.selfEditFiles.add(filePath);
+    this.selfEditFiles.add(normalizePath(filePath));
   }
 
   clearSelfEdit(filePath: string): void {
-    this.selfEditFiles.delete(filePath);
+    this.selfEditFiles.delete(normalizePath(filePath));
   }
 
   shouldIgnore(filePath: string, isDirectory?: boolean): boolean {
@@ -253,7 +254,7 @@ export class FileWatcher {
   }
 
   private async onDiskCreate(uri: vscode.Uri): Promise<void> {
-    const filePath = uri.fsPath;
+    const filePath = normalizePath(uri.fsPath);
     const basename = path.basename(filePath);
     if (this._suppressed) return;
     if (!this.stateManager.enabled) return;
@@ -316,7 +317,7 @@ export class FileWatcher {
   private async onDiskDelete(uri: vscode.Uri): Promise<void> {
     if (this._suppressed) return;
     if (!this.stateManager.enabled) return;
-    const filePath = uri.fsPath;
+    const filePath = normalizePath(uri.fsPath);
     const basename = path.basename(filePath);
     if (this.shouldIgnore(filePath)) return;
     if (this.selfEditFiles.has(filePath)) return;
@@ -365,13 +366,14 @@ export class FileWatcher {
       }
       return;
     }
-    // gitBaseline is '' (empty file) or has content — show as deletion.
-    // enterReviewing will detect isDeleted via !fs.existsSync (file no longer on disk).
+    // gitBaseline is '' (empty file) or has content — show deletion diff.
+    // Pass '' as current content since file no longer exists on disk.
+    // enterReviewing will detect isDeleted via !fs.existsSync.
     this.enterReviewing(filePath, gitBaseline, '');
   }
 
   private async onDiskChange(uri: vscode.Uri): Promise<void> {
-    const filePath = uri.fsPath;
+    const filePath = normalizePath(uri.fsPath);
     if (this._suppressed) return;
     if (!this.stateManager.enabled) return;
 
@@ -425,7 +427,7 @@ export class FileWatcher {
     if (this._suppressed) return;
     if (!this.stateManager.enabled) return;
     if (e.document.uri.scheme !== 'file') return;
-    const filePath = e.document.uri.fsPath;
+    const filePath = normalizePath(e.document.uri.fsPath);
 
     if (this.shouldIgnore(filePath)) return;
     if (this.selfEditFiles.has(filePath)) return;

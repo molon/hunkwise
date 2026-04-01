@@ -4,6 +4,7 @@ import * as path from 'path';
 import { FileState } from './types';
 import { HunkwiseGit } from './hunkwiseGit';
 import { log } from './log';
+import { normalizePath } from './pathNormalize';
 
 const DEFAULT_IGNORE_PATTERNS = process.platform === 'darwin' ? ['.git', '.DS_Store'] : ['.git'];
 
@@ -76,7 +77,7 @@ export class StateManager {
         return results;
       }
       for (const entry of entries) {
-        const full = path.join(dir, entry.name);
+        const full = normalizePath(path.join(dir, entry.name));
         const isDir = entry.isDirectory();
         if (shouldIgnore?.(full, isDir)) continue;
         if (isDir) {
@@ -312,14 +313,33 @@ export class StateManager {
   }
 
   renameFile(oldFilePath: string, newFilePath: string): void {
+    oldFilePath = normalizePath(oldFilePath);
+    newFilePath = normalizePath(newFilePath);
+
+    // Handle both single-file and directory renames in in-memory state.
+    // For a directory rename, migrate all entries under the old prefix.
+    const oldPrefix = oldFilePath + path.sep;
+    let hasDirChildren = false;
     const fileState = this.state.get(oldFilePath);
-    this.state.delete(oldFilePath);
     if (fileState) {
+      // Exact match — single file rename
+      this.state.delete(oldFilePath);
       this.state.set(newFilePath, fileState);
     }
-    // Skip git rename only when we know the file had a null baseline (never stored in hunkwise git).
-    // If fileState is undefined (idle file, not in map) or has a real baseline, queue the rename.
-    if (this._git && !(fileState && fileState.baseline === null)) {
+    // Also check for directory children (entries whose path starts with oldFilePath + sep)
+    for (const [fp, fs] of [...this.state.entries()]) {
+      if (fp.startsWith(oldPrefix)) {
+        this.state.delete(fp);
+        const newFp = newFilePath + fp.slice(oldFilePath.length);
+        this.state.set(newFp, fs);
+        hasDirChildren = true;
+      }
+    }
+
+    // Skip git rename only when we know it was a single file with null baseline (never stored in git).
+    // For directories or idle files (not in map), always queue — git may have baselines.
+    const skipGit = fileState && fileState.baseline === null && !hasDirChildren;
+    if (this._git && !skipGit) {
       const g = this._git;
       this.gitQueue = this.gitQueue.then(() => g.renameFile(oldFilePath, newFilePath)).catch(err => {
         // Do not rollback in-memory path mapping: the file has already been renamed on disk,
@@ -417,7 +437,7 @@ export class StateManager {
         return results;
       }
       for (const entry of entries) {
-        const full = path.join(dir, entry.name);
+        const full = normalizePath(path.join(dir, entry.name));
         const isDir = entry.isDirectory();
         if (shouldIgnore(full, isDir)) continue;
         if (isDir) {
@@ -528,7 +548,7 @@ export class StateManager {
         return results;
       }
       for (const entry of entries) {
-        const full = path.join(dir, entry.name);
+        const full = normalizePath(path.join(dir, entry.name));
         const isDir = entry.isDirectory();
         if (shouldIgnore(full, isDir)) continue;
         if (isDir) {
@@ -625,7 +645,7 @@ export class StateManager {
         return results;
       }
       for (const entry of entries) {
-        const full = path.join(dir, entry.name);
+        const full = normalizePath(path.join(dir, entry.name));
         const isDir = entry.isDirectory();
         if (shouldIgnore?.(full, isDir)) continue;
         if (isDir) {

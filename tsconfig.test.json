@@ -13,7 +13,8 @@
     "src/test/**/*.ts",
     "src/diffEngine.ts",
     "src/hunkwiseGit.ts",
-    "src/gitignoreManager.ts"
+    "src/gitignoreManager.ts",
+    "src/pathNormalize.ts"
   ],
   "exclude": [
     "node_modules",
