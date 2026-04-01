@@ -338,7 +338,16 @@ export class FileWatcher {
       this.pendingUserDeletes.delete(filePath);
       log(`onDiskDelete(${basename}): user delete, removeFile`);
       this.stateManager.removeFile(filePath);
-      if (fileState) {
+      // Also clean up child files when a directory is deleted via VSCode
+      const dirPrefix = filePath + path.sep;
+      let needsRefresh = !!fileState;
+      for (const [childPath] of this.stateManager.getAllFiles()) {
+        if (childPath.startsWith(dirPrefix)) {
+          this.stateManager.removeFile(childPath);
+          needsRefresh = true;
+        }
+      }
+      if (needsRefresh) {
         this.onStateChanged();
       }
       return;
@@ -362,6 +371,29 @@ export class FileWatcher {
       if (fileState) {
         log(`onDiskDelete(${basename}): no baseline, removing fileState`);
         this.stateManager.removeFile(filePath);
+        this.onStateChanged();
+      }
+
+      // When a directory is externally deleted, VSCode's FileSystemWatcher only
+      // fires onDidDelete for the directory itself, not for individual files
+      // inside it. Clean up any child state entries whose paths start with this
+      // directory prefix so they don't remain as stale ghosts in the panel.
+      const dirPrefix = filePath + path.sep;
+      const allFiles = this.stateManager.getAllFiles();
+      let childrenCleaned = 0;
+      for (const [childPath, childState] of allFiles) {
+        if (!childPath.startsWith(dirPrefix)) continue;
+        if (childState.baseline === null) {
+          // New file (no git baseline) — just remove from state
+          this.stateManager.exitReviewing(childPath);
+        } else {
+          // Has baseline — show deletion diff
+          this.enterReviewing(childPath, childState.baseline, '');
+        }
+        childrenCleaned++;
+      }
+      if (childrenCleaned > 0) {
+        log(`onDiskDelete(${basename}): cleaned ${childrenCleaned} child file(s) from deleted directory`);
         this.onStateChanged();
       }
       return;
