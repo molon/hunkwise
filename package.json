@@ -3,7 +3,7 @@
   "publisher": "molon",
   "displayName": "hunkwise",
   "description": "Per-hunk Accept/Discard for any file change",
-  "version": "0.0.23",
+  "version": "0.0.24",
   "license": "MIT",
   "repository": {
     "type": "git",
