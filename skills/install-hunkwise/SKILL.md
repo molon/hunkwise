@@ -53,6 +53,14 @@ npx @vscode/vsce package --allow-missing-repository
 
 This produces `hunkwise-<version>.vsix` in the project root. Do NOT use `--no-dependencies` — runtime dependencies (`ignore`, `diff`) must be bundled.
 
+### Step 3.5: Linux stable compatibility check
+
+**Before proceeding on Linux**, check whether the target is a VS Code **stable** build (not Insiders). On some Linux distributions (e.g. CachyOS), the proposed `editorInsets` API may not work in the stable build. If the user is on Linux and only has VS Code stable installed, warn them:
+
+> ⚠️ hunkwise may not work on VS Code stable on some Linux distributions. If it fails to activate, please switch to [VS Code Insiders](https://code.visualstudio.com/insiders/). See [issue #20](https://github.com/molon/hunkwise/issues/20) for details.
+
+Continue with installation — but surface this warning so the user is aware before restarting.
+
 ### Step 4: Detect installed VSCode builds and install the .vsix
 
 First, detect which VSCode builds are installed, then install into **all** of them.
