@@ -6,6 +6,14 @@ import { normalizePath } from './pathNormalize';
 
 const execFileAsync = promisify(execFile);
 
+/**
+ * Convert Windows backslash paths to forward slashes for git compatibility.
+ * Git expects forward slashes on all platforms.
+ */
+function toGitPath(p: string): string {
+  return p.replace(/\\/g, '/');
+}
+
 interface Settings {
   ignorePatterns: string[];
   respectGitignore: boolean;
@@ -185,7 +193,7 @@ export class HunkwiseGit {
    */
   async snapshot(filePath: string, content: string): Promise<void> {
     await this.initGit();
-    const rel = normalizePath(path.relative(this.workTree, filePath));
+    const rel = toGitPath(normalizePath(path.relative(this.workTree, filePath)));
     try {
       const hash = await new Promise<string>((resolve, reject) => {
         const child = execFile(
@@ -210,8 +218,8 @@ export class HunkwiseGit {
    */
   async renameFile(oldFilePath: string, newFilePath: string): Promise<void> {
     await this.initGit();
-    const oldRel = normalizePath(path.relative(this.workTree, oldFilePath));
-    const newRel = normalizePath(path.relative(this.workTree, newFilePath));
+    const oldRel = toGitPath(normalizePath(path.relative(this.workTree, oldFilePath)));
+    const newRel = toGitPath(normalizePath(path.relative(this.workTree, newFilePath)));
     try {
       // ls-files returns all entries matching the path (a single file or all files under a directory)
       const lsOut = await this.git(['ls-files', '--stage', '--', oldRel]);
@@ -223,7 +231,7 @@ export class HunkwiseGit {
       for (const line of lines) {
         const m = line.match(/^(\d+) ([0-9a-f]+) \d+\t(.+)$/);
         if (!m) continue;
-        entries.push({ mode: m[1], hash: m[2], entryRel: normalizePath(m[3]) });
+        entries.push({ mode: m[1], hash: m[2], entryRel: toGitPath(normalizePath(m[3])) });
       }
       if (entries.length === 0) return;
 
@@ -255,7 +263,7 @@ export class HunkwiseGit {
    */
   async removeFile(filePath: string): Promise<void> {
     await this.initGit();
-    const rel = normalizePath(path.relative(this.workTree, filePath));
+    const rel = toGitPath(normalizePath(path.relative(this.workTree, filePath)));
     try {
       const lsOut = await this.git(['ls-files', '--stage', '--', rel]);
       if (!lsOut.trim()) return; // not tracked — nothing to remove
@@ -279,7 +287,7 @@ export class HunkwiseGit {
       const entries = await Promise.all(
         files.map(({ filePath, content }) =>
           new Promise<{ rel: string; hash: string }>((resolve, reject) => {
-            const rel = normalizePath(path.relative(this.workTree, filePath));
+            const rel = toGitPath(normalizePath(path.relative(this.workTree, filePath)));
             const child = execFile(
               'git',
               ['hash-object', '-w', '--stdin'],
@@ -310,7 +318,7 @@ export class HunkwiseGit {
     if (filePaths.length === 0) return;
     await this.initGit();
     try {
-      const rels = filePaths.map(fp => normalizePath(path.relative(this.workTree, fp)));
+      const rels = filePaths.map(fp => toGitPath(normalizePath(path.relative(this.workTree, fp))));
       // Chunk to avoid exceeding OS argument length limits (~250KB on macOS)
       const CHUNK = 200;
       for (let i = 0; i < rels.length; i += CHUNK) {
@@ -336,7 +344,7 @@ export class HunkwiseGit {
    */
   async getBaseline(filePath: string): Promise<string | undefined> {
     await this.initGit();
-    const rel = normalizePath(path.relative(this.workTree, filePath));
+    const rel = toGitPath(normalizePath(path.relative(this.workTree, filePath)));
     try {
       return await this.git(['show', `:${rel}`]);
     } catch {
