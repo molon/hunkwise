@@ -51,14 +51,31 @@ body { background: transparent; position: relative; }
   top: 3px; left: 4px;
   display: flex; align-items: center; gap: 4px;
 }
+.nav {
+  display: flex; align-items: center; gap: 6px;
+  margin-left: 24px;
+}
+.btn-nav {
+  min-width: 22px;
+  justify-content: center;
+  font-size: var(--vscode-editor-font-size, 13px);
+  background: var(--vscode-button-secondaryBackground, #3a3d41);
+  color: var(--vscode-button-secondaryForeground, #cccccc);
+}
+.btn-nav:hover {
+  background: var(--vscode-button-secondaryHoverBackground, #45494e);
+  color: var(--vscode-button-foreground, #ffffff);
+}
 button {
   background: var(--vscode-button-secondaryBackground, #3a3d41);
   color: var(--vscode-button-secondaryForeground, #cccccc);
   border: 1px solid var(--vscode-button-border, rgba(128,128,128,0.4));
   border-radius: 2px;
-  padding: 0 6px; font-size: 10px;
+  padding: 1px 6px;
+  font-size: var(--vscode-editor-font-size, 13px);
   font-family: var(--vscode-font-family, sans-serif);
-  cursor: pointer; height: 20px; line-height: 1;
+  line-height: normal;
+  cursor: pointer;
   display: inline-flex; align-items: center; white-space: nowrap;
 }
 button:hover { background: var(--vscode-button-secondaryHoverBackground, #45494e); }
@@ -79,11 +96,17 @@ button:hover { background: var(--vscode-button-secondaryHoverBackground, #45494e
 <div class="bar">
 <button class="btn-accept" onclick="accept()">✓ Accept</button>
 <button class="btn-discard" onclick="discard()">↺ Discard</button>
+<div class="nav">
+<button class="btn-nav" title="Previous change" onclick="prev()">▲</button>
+<button class="btn-nav" title="Next change" onclick="next()">▼</button>
+</div>
 </div>
 <script>
 const vscode = acquireVsCodeApi();
 function accept() { vscode.postMessage({ command: 'accept', filePath: ${JSON.stringify(filePath)}, hunkId: ${JSON.stringify(hunkId)} }); }
 function discard() { vscode.postMessage({ command: 'discard', filePath: ${JSON.stringify(filePath)}, hunkId: ${JSON.stringify(hunkId)} }); }
+function prev() { vscode.postMessage({ command: 'prev', filePath: ${JSON.stringify(filePath)}, hunkId: ${JSON.stringify(hunkId)} }); }
+function next() { vscode.postMessage({ command: 'next', filePath: ${JSON.stringify(filePath)}, hunkId: ${JSON.stringify(hunkId)} }); }
 </script>
 </body></html>`;
 }
@@ -104,11 +127,11 @@ function insetCacheKey(afterLine: number, height: number): string {
 export class DecorationManager {
   // editorKey → ordered list of insets for that editor
   private insets: Map<string, HunkInset[]> = new Map();
-  private onAction: ((command: 'accept' | 'discard', filePath: string, hunkId: string) => void) | undefined;
+  private onAction: ((command: 'accept' | 'discard' | 'prev' | 'next', filePath: string, hunkId: string) => void) | undefined;
 
   constructor(
     private stateManager: StateManager,
-    onAction?: (command: 'accept' | 'discard', filePath: string, hunkId: string) => void,
+    onAction?: (command: 'accept' | 'discard' | 'prev' | 'next', filePath: string, hunkId: string) => void,
   ) {
     this.onAction = onAction;
   }
@@ -295,7 +318,7 @@ export class DecorationManager {
       ) as vscode.WebviewEditorInset;
       inset.webview.html = html;
       const disposable = inset.webview.onDidReceiveMessage((msg: any) => {
-        if (msg.command === 'accept' || msg.command === 'discard') {
+        if (msg.command === 'accept' || msg.command === 'discard' || msg.command === 'prev' || msg.command === 'next') {
           this.onAction?.(msg.command, msg.filePath, msg.hunkId);
         }
       });

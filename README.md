@@ -136,3 +136,16 @@ npm run test:integration # run VSCode integration tests
 Unit tests cover `diffEngine`, `hunkwiseGit`, and `gitignoreManager`. They run with Node's built-in test runner and require no additional dependencies.
 
 Integration tests run in a real VSCode extension host via `@vscode/test-cli` and cover rename/delete handling, .gitignore sync, file watching, and enable/disable lifecycle.
+
+### Typical development session
+
+```bash
+npm install                 # once
+npm run watch               # leave running — recompiles src/ on save
+# press F5 → "Run Extension" → opens the Extension Development Host window
+# ...edit code, save (watch recompiles)...
+# in the dev host window: Cmd/Ctrl+R (Developer: Reload Window) to load the change
+```
+
+Set debug breakpoints in your `.ts` files in the main window; they hit when the code runs in the dev host.
+

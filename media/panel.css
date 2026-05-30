@@ -14,6 +14,9 @@ body {
 }
 
 #app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
   transition: opacity 0.25s ease;
 }
 #app.fade-hidden {
@@ -374,7 +377,7 @@ body {
 
 .review-summary {
   flex: 1;
-  font-size: 12px;
+  font-size: var(--vscode-editor-font-size, 13px);
   font-weight: 500;
   display: flex;
   align-items: center;
@@ -393,12 +396,12 @@ body {
 .stat-added {
   color: #3fb950;
   font-weight: 600;
-  font-size: 11px;
+  font-size: var(--vscode-editor-font-size, 13px);
 }
 .stat-removed {
   color: #f85149;
   font-weight: 600;
-  font-size: 11px;
+  font-size: var(--vscode-editor-font-size, 13px);
 }
 
 /* ── File group ── */
@@ -410,7 +413,7 @@ body {
   cursor: pointer;
   gap: 4px;
   user-select: none;
-  height: 22px;
+  height: calc(var(--vscode-editor-font-size, 13px) + 9px);
 }
 .file-row:hover {
   background: var(--vscode-list-hoverBackground);
@@ -420,7 +423,7 @@ body {
 }
 
 .file-chevron {
-  font-size: 7px;
+  font-size: calc(var(--vscode-editor-font-size, 13px) * 0.75);
   flex-shrink: 0;
   width: 14px;
   text-align: center;
@@ -432,7 +435,7 @@ body {
 /* File type badge — colored abbreviation */
 .file-badge {
   flex-shrink: 0;
-  font-size: 8px;
+  font-size: calc(var(--vscode-editor-font-size, 13px) * 0.85);
   font-weight: 700;
   font-family: var(--vscode-editor-font-family, monospace);
   color: #fff;
@@ -445,7 +448,7 @@ body {
 }
 
 .file-name {
-  font-size: 12px;
+  font-size: var(--vscode-editor-font-size, 13px);
   font-weight: 500;
   flex-shrink: 0;
   white-space: nowrap;
@@ -459,7 +462,7 @@ body {
 }
 
 .file-dir {
-  font-size: 11px;
+  font-size: var(--vscode-editor-font-size, 13px);
   color: var(--vscode-descriptionForeground);
   flex: 0 1 auto;
   overflow: hidden;
@@ -497,10 +500,10 @@ body {
   color: var(--vscode-foreground);
   padding: 0 4px;
   border-radius: 3px;
-  font-size: 13px;
+  font-size: var(--vscode-editor-font-size, 13px);
   font-family: var(--vscode-font-family);
-  line-height: 22px;
-  height: 22px;
+  line-height: calc(var(--vscode-editor-font-size, 13px) + 9px);
+  height: calc(var(--vscode-editor-font-size, 13px) + 9px);
   cursor: pointer;
   opacity: 0;
 }
@@ -530,14 +533,14 @@ body {
   padding: 0 4px 0 30px;
   gap: 4px;
   cursor: pointer;
-  height: 20px;
+  height: calc(var(--vscode-editor-font-size, 13px) + 7px);
 }
 .hunk-row:hover {
   background: var(--vscode-list-hoverBackground);
 }
 
 .hunk-label {
-  font-size: 11px;
+  font-size: var(--vscode-editor-font-size, 13px);
   color: var(--vscode-descriptionForeground);
   font-family: var(--vscode-editor-font-family, monospace);
   flex: 1;
@@ -563,7 +566,7 @@ body {
 .btn-review-discard {
   border-radius: 3px;
   cursor: pointer;
-  font-size: 11px;
+  font-size: var(--vscode-editor-font-size, 13px);
   font-family: var(--vscode-font-family);
   padding: 3px 7px;
   white-space: nowrap;
@@ -587,9 +590,37 @@ body {
   background: rgba(248, 81, 73, 0.15);
 }
 
+/* ── Review footer (Reset Baseline) ── */
+.review-footer {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px;
+  margin-top: auto;
+  border-top: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.2));
+  position: sticky;
+  bottom: 0;
+  background: var(--vscode-sideBar-background, var(--vscode-panel-background));
+}
+
+.btn-reset-baseline {
+  flex: 1;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: var(--vscode-editor-font-size, 13px);
+  font-family: var(--vscode-font-family);
+  padding: 5px 7px;
+  white-space: nowrap;
+  background: rgba(79, 161, 246, 0.1);
+  color: #9cc7f0;
+  border: 1px solid rgba(79, 161, 246, 0.3);
+}
+.btn-reset-baseline:hover {
+  background: rgba(79, 161, 246, 0.18);
+}
+
 /* ── File status badges ── */
 .file-status-badge {
-  font-size: 8px;
+  font-size: calc(var(--vscode-editor-font-size, 13px) - 2px);
   font-weight: 700;
   padding: 0 3px;
   border-radius: 2px;
@@ -616,7 +647,7 @@ body {
   padding: 4px 14px;
   border-radius: 3px;
   cursor: pointer;
-  font-size: 11px;
+  font-size: var(--vscode-editor-font-size, 13px);
   font-family: var(--vscode-font-family);
   opacity: 0.7;
 }

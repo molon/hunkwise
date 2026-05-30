@@ -103,6 +103,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
   decorationManager = new DecorationManager(stateManager, (command, filePath, hId) => {
     if (command === 'accept') {
       acceptHunk(stateManager, filePath, hId, () => { onStateChanged(); fireBaselineChange(filePath); void closeStaleTabs().catch(err => log(`closeStaleTabs: ${err}`)); }, 'inset');
+    } else if (command === 'prev' || command === 'next') {
+      void reviewPanel?.navigateFromHunk(filePath, hId, command).catch(err => log(`navigateFromHunk: ${err}`));
     } else {
       discardHunk(stateManager, fileWatcher, filePath, hId, () => { onStateChanged(); void closeStaleTabs().catch(err => log(`closeStaleTabs: ${err}`)); }, 'inset');
     }
