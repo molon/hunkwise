@@ -7,6 +7,14 @@ import { log } from './log';
 const addedLineDecoration = vscode.window.createTextEditorDecorationType({
   backgroundColor: new vscode.ThemeColor('diffEditor.insertedLineBackground'),
   isWholeLine: true,
+  overviewRulerColor: '#3fb950',
+  overviewRulerLane: vscode.OverviewRulerLane.Right,
+});
+
+// ── Deleted line overview ruler (red, no background — only for ruler) ─────────
+const deletedLineDecoration = vscode.window.createTextEditorDecorationType({
+  overviewRulerColor: '#f85149',
+  overviewRulerLane: vscode.OverviewRulerLane.Right,
 });
 
 // ── HTML helpers ─────────────────────────────────────────────────────────────
@@ -159,10 +167,12 @@ export class DecorationManager {
       this.disposeInsetList(this.insets.get(editorKey) ?? []);
       this.insets.delete(editorKey);
       editor.setDecorations(addedLineDecoration, []);
+      editor.setDecorations(deletedLineDecoration, []);
       return;
     }
 
     const addedRanges: vscode.Range[] = [];
+    const deletedRanges: vscode.Range[] = [];
     const tabSize = editor.options.tabSize as number || 4;
     const parsed = computeHunks(fileState.baseline, editor.document.getText());
 
@@ -207,6 +217,13 @@ export class DecorationManager {
       //   Both deleted and action use afterLine = newStart - 2 (same value).
       //   VSCode stacks insets at the same afterLine with the FIRST-pushed on TOP.
       //   So we push deleted first, then action, to render deleted above action.
+
+      if (hunk.removedContent.length > 0) {
+        const markerLine = Math.min(editor.document.lineCount - 1, Math.max(0, hunk.newStart - 1));
+        if (markerLine >= 0 && markerLine < editor.document.lineCount) {
+          deletedRanges.push(editor.document.lineAt(markerLine).range);
+        }
+      }
 
       const hasDeletion = hunk.removedContent.length > 0;
       const hasAddition = hunk.newLines > 0;
@@ -274,6 +291,7 @@ export class DecorationManager {
     }
 
     editor.setDecorations(addedLineDecoration, addedRanges);
+    editor.setDecorations(deletedLineDecoration, deletedRanges);
     if (nextInsets.length > 0) {
       this.insets.set(editorKey, nextInsets);
     } else {
@@ -319,6 +337,7 @@ export class DecorationManager {
 
   dispose(): void {
     addedLineDecoration.dispose();
+    deletedLineDecoration.dispose();
     for (const list of this.insets.values()) {
       this.disposeInsetList(list);
     }
