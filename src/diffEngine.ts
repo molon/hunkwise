@@ -49,10 +49,13 @@ export function computeHunks(baseline: string | null, current: string): ParsedHu
         : c.value.split('\n');
 
       if (c.removed) {
-        removed.push(...lines);
+        for (const l of lines)
+          removed.push(l);
         oldLine += lines.length;
-      } else if (c.added) {
-        added.push(...lines);
+      }
+      else if (c.added) {
+        for (const l of lines)
+          added.push(l);
         newLine += lines.length;
       }
       i++;
