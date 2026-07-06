@@ -52,6 +52,7 @@ interface PanelHunk {
 export class ReviewPanel implements vscode.WebviewViewProvider {
   private view?: vscode.WebviewView;
   private _loading: boolean = false;
+  private _badgeCount: number = 0;
 
   get loading(): boolean { return this._loading; }
 
@@ -66,6 +67,14 @@ export class ReviewPanel implements vscode.WebviewViewProvider {
 
   resolveWebviewView(webviewView: vscode.WebviewView): void {
     this.view = webviewView;
+    // VSCode disposes and re-resolves this view whenever the user drags it to a
+    // different container (bottom panel ↔ activity bar ↔ secondary sidebar) or
+    // after it has been hidden. Drop our stale reference on dispose so we don't
+    // write to a dead view, and re-apply the cached badge below so the count
+    // follows the view to its new home.
+    webviewView.onDidDispose(() => {
+      if (this.view === webviewView) this.view = undefined;
+    });
     webviewView.webview.options = {
       enableScripts: true,
       localResourceRoots: [
@@ -73,6 +82,9 @@ export class ReviewPanel implements vscode.WebviewViewProvider {
       ],
     };
     webviewView.webview.html = this.getHtml(webviewView.webview);
+    // Restore the last-known badge immediately so there is no gap after a move,
+    // before the webview reports 'ready' and triggers a full refresh.
+    this.updateBadge();
 
     webviewView.webview.onDidReceiveMessage(msg => {
       if (msg.command === 'ready') {
@@ -91,6 +103,7 @@ export class ReviewPanel implements vscode.WebviewViewProvider {
     if (!this.view || this._loading) return;
     const state = this.buildPanelState();
     this.view.webview.postMessage({ type: 'update', state });
+    this.setBadgeCount(state.enabled ? state.totalFiles : 0);
   }
 
   setLoading(loading: boolean): void {
@@ -102,7 +115,38 @@ export class ReviewPanel implements vscode.WebviewViewProvider {
       // Send the real state immediately so there's no flash of the disabled screen
       const state = this.buildPanelState();
       this.view.webview.postMessage({ type: 'update', state });
+      this.setBadgeCount(state.enabled ? state.totalFiles : 0);
     }
+  }
+
+  /**
+   * Update the numbered badge on the view's container icon (the small pill
+   * VSCode renders on the activity-bar / panel / sidebar entry) to reflect the
+   * number of files with pending changes. The count is cached so it can be
+   * re-applied verbatim from resolveWebviewView after the user moves the view
+   * between containers — the badge is a property of the live WebviewView, so it
+   * must be re-set every time the view is re-resolved.
+   */
+  private setBadgeCount(count: number): void {
+    this._badgeCount = count;
+    this.updateBadge();
+  }
+
+  private updateBadge(): void {
+    if (!this.view) return;
+    // Clearing the badge by assigning `undefined` (as the API doc suggests) does
+    // not visually remove it from a panel-hosted view in current VSCode builds —
+    // the stale count lingers on the container icon. Assigning an explicit
+    // zero-value badge reliably clears it, since VSCode hides a badge whose value
+    // is 0. Keep this rather than `undefined`.
+    this.view.badge = this._badgeCount > 0
+      ? {
+          value: this._badgeCount,
+          tooltip: this._badgeCount === 1
+            ? '1 file with pending changes'
+            : `${this._badgeCount} files with pending changes`,
+        }
+      : { value: 0, tooltip: '' };
   }
 
   openSettings(): void {
