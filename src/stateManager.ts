@@ -82,7 +82,8 @@ export class StateManager {
         if (shouldIgnore?.(full, isDir)) continue;
         if (isDir) {
           const nested = await collect(full);
-          if (nested.length) results.push(...nested);
+          // Avoid push(...nested) — spreading a large array overflows the call stack.
+          for (const n of nested) results.push(n);
         } else if (entry.isFile() && !trackedSet.has(full)) {
           try {
             await fs.promises.access(full, fs.constants.R_OK);

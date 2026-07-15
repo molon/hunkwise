@@ -16,7 +16,10 @@ export function hunkId(hunk: ParsedHunk): string {
 }
 
 export function computeHunks(baseline: string | null, current: string): ParsedHunk[] {
-  const changes = Diff.diffLines(baseline ?? '', current);
+  // Ignore CRLF vs LF: normalize line endings before diffing so pure
+  // line-ending differences are never flagged as content changes.
+  const normalizeEol = (s: string | null): string => (s ?? '').replace(/\r\n/g, '\n');
+  const changes = Diff.diffLines(normalizeEol(baseline), normalizeEol(current));
 
   const hunks: ParsedHunk[] = [];
   let oldLine = 1;
@@ -49,10 +52,11 @@ export function computeHunks(baseline: string | null, current: string): ParsedHu
         : c.value.split('\n');
 
       if (c.removed) {
-        removed.push(...lines);
+        // Avoid push(...lines) — spreading a huge array overflows the call stack.
+        for (const l of lines) removed.push(l);
         oldLine += lines.length;
       } else if (c.added) {
-        added.push(...lines);
+        for (const l of lines) added.push(l);
         newLine += lines.length;
       }
       i++;
