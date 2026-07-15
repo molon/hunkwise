@@ -22,5 +22,11 @@ export function normalizePath(p: string): string {
   if (process.platform === 'darwin') {
     return p.normalize('NFC');
   }
+  // On Windows, git index paths (update-index --cacheinfo, `git show :path`)
+  // require forward slashes, but path.relative() yields backslashes. Normalize
+  // them so git operations work and Map/Set keys stay consistent.
+  if (process.platform === 'win32') {
+    return p.replace(/\\/g, '/');
+  }
   return p;
 }

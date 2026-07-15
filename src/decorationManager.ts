@@ -33,7 +33,7 @@ body {
   font-size: var(--vscode-editor-font-size, 13px);
   line-height: var(--vscode-editor-line-height, 1.5);
 }
-.line { white-space: pre; overflow: hidden; text-overflow: ellipsis; tab-size: ${tabSize}; }
+.line { white-space: pre; overflow: hidden; text-overflow: ellipsis; tab-size: ${tabSize}; height: calc(100vh / ${lines.length || 1}); line-height: calc(100vh / ${lines.length || 1}); }
 </style>
 </head><body>${rows}</body></html>`;
 }

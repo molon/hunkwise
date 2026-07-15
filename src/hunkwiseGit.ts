@@ -25,6 +25,43 @@ const DEFAULT_SETTINGS: Settings = {
 };
 
 /**
+ * Remove a directory tree, including read-only files.
+ *
+ * On Windows, git marks its object/pack files with the read-only attribute,
+ * which makes fs.rmSync throw EPERM. Clearing that attribute (chmod toggles the
+ * read-only bit on Windows) before removing fixes it. On POSIX this isn't
+ * needed — deletion depends on the parent directory's write permission, not the
+ * file's own bits — so we skip the walk and delete directly (also avoids
+ * chmod-following-symlinks on Linux).
+ */
+function forceRemoveDirSync(target: string): void {
+  if (!fs.existsSync(target)) return;
+  if (process.platform === 'win32') {
+    // Recursively clear read-only bits so rmSync can actually delete.
+    const clear = (p: string): void => {
+      let st: fs.Stats;
+      try {
+        st = fs.lstatSync(p);
+      } catch {
+        return;
+      }
+      try {
+        fs.chmodSync(p, 0o700);
+      } catch { /* best effort */ }
+      if (st.isDirectory()) {
+        let entries: string[] = [];
+        try {
+          entries = fs.readdirSync(p);
+        } catch { /* ignore */ }
+        for (const e of entries) clear(path.join(p, e));
+      }
+    };
+    clear(target);
+  }
+  fs.rmSync(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+}
+
+/**
  * Manages all hunkwise persistent state via:
  *   .vscode/hunkwise/settings.json  — enabled flag + ignorePatterns
  *   .vscode/hunkwise/git/           — private git repo storing baselines
@@ -46,6 +83,7 @@ export class HunkwiseGit {
   private workTree: string;
   private gitInitialized = false;
   private destroyed = false;
+  private writeLock: Promise<void> = Promise.resolve();
   private initPromise: Promise<void> | undefined;
   private log: (message: string) => void;
 
@@ -68,6 +106,18 @@ export class HunkwiseGit {
   }
 
   private async git(args: string[]): Promise<string> {
+    // Index-mutating git commands must never run concurrently or they collide
+    // on .git/index.lock. Serialize them through a single write-lock chain.
+    const isWrite = args.indexOf('update-index') !== -1 || args.indexOf('commit') !== -1;
+    if (!isWrite) {
+      return this.gitExec(args);
+    }
+    const run = this.writeLock.then(() => this.gitExec(args), () => this.gitExec(args));
+    this.writeLock = run.then(() => {}, () => {});
+    return run;
+  }
+
+  private async gitExec(args: string[]): Promise<string> {
     const { stdout } = await execFileAsync('git', ['-c', 'core.quotepath=false', ...args], {
       cwd: this.workTree,
       env: this.env,
@@ -149,7 +199,7 @@ export class HunkwiseGit {
       if (fs.existsSync(this.gitDir)) {
         this.log('initGit: corrupted git dir detected (HEAD missing), re-initializing');
         try {
-          fs.rmSync(this.gitDir, { recursive: true, force: true });
+          forceRemoveDirSync(this.gitDir);
         } catch (err) {
           this.log(`initGit: failed to remove corrupted git dir: ${err}`);
           throw err;
@@ -275,21 +325,28 @@ export class HunkwiseGit {
     if (files.length === 0) return;
     await this.initGit();
     try {
-      // Hash all blobs in parallel, then stage all at once and commit once
-      const entries = await Promise.all(
-        files.map(({ filePath, content }) =>
-          new Promise<{ rel: string; hash: string }>((resolve, reject) => {
-            const rel = normalizePath(path.relative(this.workTree, filePath));
-            const child = execFile(
-              'git',
-              ['hash-object', '-w', '--stdin'],
-              { env: this.env },
-              (err, stdout) => (err ? reject(err) : resolve({ rel, hash: stdout.trim() }))
-            );
-            child.stdin!.end(content, 'utf-8');
-          })
-        )
-      );
+      // Hash blobs with BOUNDED concurrency. Spawning one git hash-object
+      // process per file all at once (thousands on a large repo) exhausts the
+      // OS process table/memory and can hard-freeze the machine.
+      const HASH_LIMIT = 16;
+      const entries: { rel: string; hash: string }[] = [];
+      for (let i = 0; i < files.length; i += HASH_LIMIT) {
+        const hashed = await Promise.all(
+          files.slice(i, i + HASH_LIMIT).map(({ filePath, content }) =>
+            new Promise<{ rel: string; hash: string }>((resolve, reject) => {
+              const rel = normalizePath(path.relative(this.workTree, filePath));
+              const child = execFile(
+                'git',
+                ['hash-object', '-w', '--stdin'],
+                { env: this.env },
+                (err, stdout) => (err ? reject(err) : resolve({ rel, hash: stdout.trim() }))
+              );
+              child.stdin!.end(content, 'utf-8');
+            })
+          )
+        );
+        for (const h of hashed) entries.push(h);
+      }
       // Stage all entries, chunked to avoid OS argument length limits
       const CHUNK = 100;
       for (let i = 0; i < entries.length; i += CHUNK) {
@@ -369,7 +426,7 @@ export class HunkwiseGit {
     this.destroyed = true;
     if (fs.existsSync(this.gitDir)) {
       try {
-        fs.rmSync(this.gitDir, { recursive: true, force: true });
+        forceRemoveDirSync(this.gitDir);
       } catch (err) {
         this.log(`destroyGit failed: ${err}`);
       }
