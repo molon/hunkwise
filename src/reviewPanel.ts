@@ -300,25 +300,54 @@ export class ReviewPanel implements vscode.WebviewViewProvider {
         break;
       case 'jumpToHunk':
         if (msg.filePath && msg.hunkId) {
-          log(`jumpToHunk(${path.basename(msg.filePath)}): hunkId=${msg.hunkId}, opening in ${this.stateManager.useDiffEditor ? 'diffEditor' : 'normalEditor'}`);
-          if (this.stateManager.useDiffEditor) {
-            await this.openDiffEditor(msg.filePath, msg.hunkId);
-          } else {
-            const fileState = this.stateManager.getFile(msg.filePath);
-            if (fileState) {
-              const doc = await vscode.window.showTextDocument(vscode.Uri.file(msg.filePath));
-              const hunk = computeHunks(fileState.baseline, doc.document.getText())
-                .find(h => hunkId(h) === msg.hunkId);
-              if (hunk) {
-                const pos = new vscode.Position(Math.max(0, hunk.newStart - 1), 0);
-                doc.selection = new vscode.Selection(pos, pos);
-                doc.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
-              }
-            }
-          }
+          await this.jumpToHunk(msg.filePath, msg.hunkId);
         }
         break;
+      case 'resetBaseline': {
+        const choice = await vscode.window.showWarningMessage(
+          'Reset hunkwise baseline to the current state of all files? This clears all pending review changes.',
+          { modal: true }, 'Reset Baseline');
+        if (choice === 'Reset Baseline') {
+          await vscode.commands.executeCommand('hunkwise.clearHunks');
+        }
+        break;
+      }
     }
+  }
+
+  /** Open/reveal a specific hunk, honoring the useDiffEditor setting. */
+  async jumpToHunk(filePath: string, hId: string): Promise<void> {
+    log(`jumpToHunk(${path.basename(filePath)}): hunkId=${hId}, opening in ${this.stateManager.useDiffEditor ? 'diffEditor' : 'normalEditor'}`);
+    if (this.stateManager.useDiffEditor) {
+      await this.openDiffEditor(filePath, hId);
+    } else {
+      const fileState = this.stateManager.getFile(filePath);
+      if (fileState) {
+        const doc = await vscode.window.showTextDocument(vscode.Uri.file(filePath));
+        const hunk = computeHunks(fileState.baseline, doc.document.getText())
+          .find(h => hunkId(h) === hId);
+        if (hunk) {
+          const pos = new vscode.Position(Math.max(0, hunk.newStart - 1), 0);
+          doc.selection = new vscode.Selection(pos, pos);
+          doc.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+        }
+      }
+    }
+  }
+
+  /**
+   * Navigate to the previous/next pending hunk across all files, in the same
+   * order the panel lists them. Wraps around at the ends.
+   */
+  async navigateFromHunk(filePath: string, hId: string, direction: 'prev' | 'next'): Promise<void> {
+    const ordered = this.buildPanelState().files.flatMap(f => f.hunks);
+    if (ordered.length < 2) return;
+    const idx = ordered.findIndex(h => h.filePath === filePath && h.id === hId);
+    if (idx === -1) return;
+    const len = ordered.length;
+    const targetIdx = direction === 'next' ? (idx + 1) % len : (idx - 1 + len) % len;
+    const target = ordered[targetIdx];
+    await this.jumpToHunk(target.filePath, target.id);
   }
 
   private async openDiffEditor(filePath: string, targetHunkId?: string): Promise<void> {

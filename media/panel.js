@@ -430,6 +430,11 @@ function renderReviewScreen(state) {
   for (const file of state.files) {
     app.appendChild(renderFileGroup(file));
   }
+
+  const footer = el('div', 'review-footer');
+  footer.appendChild(btn('⟲ Reset Baseline', 'btn-reset-baseline',
+    () => vscode.postMessage({ command: 'resetBaseline' })));
+  app.appendChild(footer);
 }
 
 /**
