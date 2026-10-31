@@ -49,10 +49,12 @@ export function computeHunks(baseline: string | null, current: string): ParsedHu
         : c.value.split('\n');
 
       if (c.removed) {
-        removed.push(...lines);
+        // push(...lines) blows the call stack on a single huge chunk (100k+ lines),
+        // which is exactly what a regenerated generated file produces
+        for (const line of lines) removed.push(line);
         oldLine += lines.length;
       } else if (c.added) {
-        added.push(...lines);
+        for (const line of lines) added.push(line);
         newLine += lines.length;
       }
       i++;
