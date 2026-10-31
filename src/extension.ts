@@ -93,6 +93,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
   fileWatcher.register(context);
   fileWatcher.suppressAll();
 
+  // Register the panel before the baseline load. Reading one baseline per tracked
+  // file takes minutes on a large workspace, and a webview view requested while the
+  // extension is still activating never gets resolved — the panel stays blank all
+  // session because refresh()/setLoading() no-op while `this.view` is undefined.
+  reviewPanel = new ReviewPanel(context, stateManager, fileWatcher, onStateChanged, fireBaselineChange, closeStaleTabs);
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider('hunkwiseToolbar', reviewPanel)
+  );
+  reviewPanel.setLoading(true);
+  log('panel: webview view provider registered');
+
   try {
     await stateManager.load((fp, isDir) => fileWatcher.shouldIgnore(fp, isDir));
     log(`loaded state: enabled=${stateManager.enabled}, files=${stateManager.getAllFiles().size}`);
@@ -125,11 +136,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
       if (editor) decorationManager?.refresh([editor]);
       reviewPanel?.refresh();
     }),
-  );
-
-  reviewPanel = new ReviewPanel(context, stateManager, fileWatcher, onStateChanged, fireBaselineChange, closeStaleTabs);
-  context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider('hunkwiseToolbar', reviewPanel)
   );
 
   registerCommands(context, stateManager, fileWatcher, reviewPanel, onStateChanged);
