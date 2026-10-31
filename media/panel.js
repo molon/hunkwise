@@ -531,8 +531,13 @@ function renderFileGroup(file) {
   return group;
 }
 
+/** Set once the host answers anything, so the retry loop can stop. */
+let hostAnswered = false;
+let readyAttempts = 0;
+
 window.addEventListener('message', event => {
   const msg = event.data;
+  hostAnswered = true;
   if (msg.type === 'loading') {
     if (!app) return;
     if (msg.loading) {
@@ -549,17 +554,60 @@ window.addEventListener('message', event => {
       isLoading = false;
       // Render hidden first, then fade in
       app.classList.add('fade-hidden');
-      render(msg.state);
-      // Force a reflow so the transition fires
-      void app.offsetWidth;
-      app.classList.remove('fade-hidden');
+      try {
+        render(msg.state);
+      } catch (err) {
+        renderPanelError(err);
+      } finally {
+        // Never stay at opacity 0 — a failed render used to blank the panel until reload
+        void app.offsetWidth;
+        app.classList.remove('fade-hidden');
+      }
     } else {
-      render(msg.state);
+      try {
+        render(msg.state);
+      } catch (err) {
+        renderPanelError(err);
+      }
     }
   } else if (msg.type === 'openSettings') {
     view = 'settings';
-    if (currentState) render(currentState);
+    if (currentState) {
+      try {
+        render(currentState);
+      } catch (err) {
+        renderPanelError(err);
+      }
+    }
   }
 });
 
+/**
+ * @param {unknown} err
+ * @returns {string}
+ */
+function describeError(err) {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/** @param {unknown} err */
+function renderPanelError(err) {
+  if (!app) return;
+  clearIdleTimers();
+  app.innerHTML = '';
+  const screen = el('div', 'splash-screen');
+  appendIcon(screen);
+  screen.appendChild(el('p', 'splash-tagline', 'hunkwise could not render the review list'));
+  screen.appendChild(el('p', 'splash-tagline', describeError(err)));
+  app.appendChild(screen);
+}
+
+// The extension answers 'ready' with the current state. If that answer is lost to a
+// webview/host handshake race the panel would sit on the splash forever, so ask again
+// until the host proves it is listening (any message counts).
 vscode.postMessage({ command: 'ready' });
+const readyWatchdog = setInterval(() => {
+  if (currentState || hostAnswered || readyAttempts >= 5) { clearInterval(readyWatchdog); return; }
+  readyAttempts += 1;
+  vscode.postMessage({ command: 'ready' });
+}, 2000);

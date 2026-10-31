@@ -34,13 +34,9 @@ suite('hunkwise startup & loading integration', function () {
     await enableHunkwise();
     await waitForCondition(() => gitListTracked(root).includes('a.txt'), 5000);
 
-    // At this point the extension is active and startup sync has already run.
-    // The loading state should be false (sync completed).
-    const panel = getReviewPanel();
-    if (panel) {
-      assert.strictEqual(panel.loading, false,
-        'ReviewPanel loading should be false after startup sync completes');
-    }
+    // Activation does not wait for the baseline load, so the startup sync settles
+    // afterwards — wait for it rather than assuming it has already run.
+    await waitForCondition(() => getReviewPanel()?.loading === false, 15000);
 
     // Verify files are tracked correctly
     const tracked = gitListTracked(root);
@@ -95,12 +91,8 @@ suite('hunkwise startup & loading integration', function () {
       'stale file should be removed after sync');
     assert.ok(tracked.includes('keep.txt'), 'keep.txt should still be tracked');
 
-    // Loading should be cleared
-    const panel = getReviewPanel();
-    if (panel) {
-      assert.strictEqual(panel.loading, false,
-        'ReviewPanel loading should be false after sync');
-    }
+    // Loading should be cleared once the startup sync settles
+    await waitForCondition(() => getReviewPanel()?.loading === false, 15000);
   });
 
   test('startup sync removes many stale ignored files efficiently via batch', async () => {
@@ -259,11 +251,7 @@ suite('hunkwise startup & loading integration', function () {
     }
     await sleep(2000);
 
-    // The critical assertion: loading should NOT be stuck on true
-    const panel = getReviewPanel();
-    if (panel) {
-      assert.strictEqual(panel.loading, false,
-        'ReviewPanel loading must not be stuck on true after sync error');
-    }
+    // The critical assertion: loading must not be stuck on true after a sync error
+    await waitForCondition(() => getReviewPanel()?.loading === false, 15000);
   });
 });

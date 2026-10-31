@@ -15,6 +15,11 @@ export function registerCommands(
   reviewPanel: ReviewPanel,
   onStateChanged: () => void
 ): void {
+  // Activation no longer waits for the initial load, so a command can be invoked
+  // while it is still running. Every handler that touches state or git waits for it
+  // first — otherwise e.g. `enable` and `load()` interleave their state writes.
+  const whenReady = () => stateManager.ready;
+
   context.subscriptions.push(
     vscode.commands.registerCommand('hunkwise.enable', () =>
       enableHunkwise(stateManager, fileWatcher, reviewPanel, onStateChanged)
@@ -23,21 +28,25 @@ export function registerCommands(
       disableHunkwise(stateManager, onStateChanged)
     ),
     vscode.commands.registerCommand('hunkwise.setIgnorePatterns', async (patterns: string[]) => {
+      await whenReady();
       stateManager.setIgnorePatterns(patterns);
       onStateChanged();
       await stateManager.syncIgnoreState((fp, isDir) => fileWatcher.shouldIgnore(fp, isDir));
       onStateChanged();
     }),
     vscode.commands.registerCommand('hunkwise.setRespectGitignore', async (value: boolean) => {
+      await whenReady();
       stateManager.setRespectGitignore(value);
       onStateChanged();
       await stateManager.syncIgnoreState((fp, isDir) => fileWatcher.shouldIgnore(fp, isDir));
       onStateChanged();
     }),
-    vscode.commands.registerCommand('hunkwise.setClearOnBranchSwitch', (value: boolean) => {
+    vscode.commands.registerCommand('hunkwise.setClearOnBranchSwitch', async (value: boolean) => {
+      await whenReady();
       stateManager.setClearOnBranchSwitch(value);
     }),
     vscode.commands.registerCommand('hunkwise.clearHunks', async () => {
+      await whenReady();
       await stateManager.clearHunksOnBranchSwitch(
         (fp, isDir) => fileWatcher.shouldIgnore(fp, isDir)
       );
@@ -52,6 +61,7 @@ async function enableHunkwise(
   reviewPanel: ReviewPanel,
   onStateChanged: () => void
 ): Promise<void> {
+  await stateManager.ready;
   log('enable');
   reviewPanel.setLoading(true);
   try {
@@ -73,6 +83,7 @@ async function disableHunkwise(
   stateManager: StateManager,
   onStateChanged: () => void
 ): Promise<void> {
+  await stateManager.ready;
   log('disable');
   stateManager.setEnabled(false);
   onStateChanged();
