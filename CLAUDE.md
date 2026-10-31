@@ -39,7 +39,7 @@ hunkwise is a VSCode extension that provides per-hunk Accept/Discard controls fo
 
    Insets are reused across refreshes by cache key (`afterLine:height`) to avoid flicker.
 
-6. **`ReviewPanel`** (`reviewPanel.ts`) is the sidebar webview panel showing all pending files with batch actions. It communicates with the extension via `vscode.postMessage`.
+6. **`ReviewPanel`** (`reviewPanel.ts`) is the sidebar webview panel showing all pending files with batch actions. It communicates with the extension via `vscode.postMessage`. The provider is registered before `StateManager.load()` runs and `activate()` does not await the load, so the view resolves immediately and the extension host's eager activation is not held open; commands that touch state await `StateManager.ready` first.
 
 ### Key behaviors
 

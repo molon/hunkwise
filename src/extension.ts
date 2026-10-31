@@ -104,12 +104,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
   reviewPanel.setLoading(true);
   log('panel: webview view provider registered');
 
-  try {
-    await stateManager.load((fp, isDir) => fileWatcher.shouldIgnore(fp, isDir));
-    log(`loaded state: enabled=${stateManager.enabled}, files=${stateManager.getAllFiles().size}`);
-  } finally {
-    fileWatcher.resumeAll();
-  }
+  // Never block activation on the load: awaiting it here holds the whole extension
+  // host's eager activation open, so onStartupFinished — and every extension that
+  // waits for it, chat included — only starts once the last baseline is read.
+  const loadPromise = (async () => {
+    try {
+      await stateManager.load((fp, isDir) => fileWatcher.shouldIgnore(fp, isDir));
+      log(`loaded state: enabled=${stateManager.enabled}, files=${stateManager.getAllFiles().size}`);
+    } catch (err) {
+      log(`load: error — ${err}`);
+    } finally {
+      fileWatcher.resumeAll();
+    }
+  })();
 
   decorationManager = new DecorationManager(stateManager, (command, filePath, hId) => {
     if (command === 'accept') {
@@ -158,6 +165,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
       reviewPanel?.openSettings();
     }),
     vscode.commands.registerCommand('hunkwise.refresh', async () => {
+      await stateManager.ready;
       if (!stateManager.enabled) return;
       reviewPanel?.setLoading(true);
       try {
@@ -172,26 +180,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<{ getR
   );
 
   // Sync ignore state on startup in case .gitignore or ignorePatterns
-  // changed while VSCode was closed. Show loading state during sync so
-  // the panel doesn't flash stale data before the sync completes.
-  if (stateManager.enabled) {
-    reviewPanel.setLoading(true);
-    log('startup sync: begin');
-    Promise.all([
-      new Promise(resolve => setTimeout(resolve, 750)),
-      stateManager.syncIgnoreState((fp, isDir) => fileWatcher.shouldIgnore(fp, isDir)),
-    ]).then(() => {
-      log('startup sync: complete');
-      reviewPanel?.setLoading(false);
-      onStateChanged();
-    }).catch((err) => {
-      log(`startup sync: error — ${err}`);
-      reviewPanel?.setLoading(false);
-      onStateChanged();
-    });
-  } else {
+  // changed while VSCode was closed. Runs once the baseline load settles, off the
+  // activation path, so the panel shows its loading screen in the meantime.
+  void loadPromise.then(async () => {
+    if (stateManager.enabled) {
+      reviewPanel.setLoading(true);
+      log('startup sync: begin');
+      try {
+        await Promise.all([
+          new Promise(resolve => setTimeout(resolve, 750)),
+          stateManager.syncIgnoreState((fp, isDir) => fileWatcher.shouldIgnore(fp, isDir)),
+        ]);
+        log('startup sync: complete');
+      } catch (err) {
+        log(`startup sync: error — ${err}`);
+      }
+    }
+    reviewPanel?.setLoading(false);
     onStateChanged();
-  }
+  });
 
   // ── Watch .vscode/hunkwise/git/ for deletion ────────────────────────────────
   // Detects: git dir deleted → reset to disabled; settings.json changed → reload patterns.

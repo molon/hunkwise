@@ -38,7 +38,12 @@ export class StateManager {
   // Set by the extension to trigger UI refresh after unexpected state restoration.
   onRollback: (() => void) | undefined;
 
+  /** Resolves once the initial load() has finished, including the early returns. */
+  readonly ready: Promise<void>;
+  private markReady!: () => void;
+
   constructor() {
+    this.ready = new Promise<void>(resolve => { this.markReady = resolve; });
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (workspaceFolders && workspaceFolders.length > 0) {
       this.workspaceRoot = workspaceFolders[0].uri.fsPath;
@@ -115,6 +120,14 @@ export class StateManager {
    * from git requires exec calls.
    */
   async load(shouldIgnore?: (filePath: string, isDirectory?: boolean) => boolean): Promise<void> {
+    try {
+      await this.loadFromGit(shouldIgnore);
+    } finally {
+      this.markReady();
+    }
+  }
+
+  private async loadFromGit(shouldIgnore?: (filePath: string, isDirectory?: boolean) => boolean): Promise<void> {
     const g = this.ensureGit();
     if (!g) return;
 
