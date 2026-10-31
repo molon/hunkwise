@@ -66,6 +66,7 @@ export class ReviewPanel implements vscode.WebviewViewProvider {
 
   resolveWebviewView(webviewView: vscode.WebviewView): void {
     this.view = webviewView;
+    log('panel: resolveWebviewView');
     webviewView.webview.options = {
       enableScripts: true,
       localResourceRoots: [
@@ -76,6 +77,7 @@ export class ReviewPanel implements vscode.WebviewViewProvider {
 
     webviewView.webview.onDidReceiveMessage(msg => {
       if (msg.command === 'ready') {
+        log('panel: ready');
         if (this._loading) {
           this.view?.webview.postMessage({ type: 'loading', loading: true });
         } else {
@@ -89,7 +91,23 @@ export class ReviewPanel implements vscode.WebviewViewProvider {
 
   refresh(): void {
     if (!this.view || this._loading) return;
-    const state = this.buildPanelState();
+    this.postState();
+  }
+
+  /**
+   * Build and post the current panel state. A state that cannot be built must not
+   * take the panel down with it: the error is logged and the webview keeps showing
+   * whatever it last had.
+   */
+  private postState(): void {
+    if (!this.view) return;
+    let state: PanelState;
+    try {
+      state = this.buildPanelState();
+    } catch (err) {
+      log(`panel: buildPanelState failed — ${err}`);
+      return;
+    }
     this.view.webview.postMessage({ type: 'update', state });
   }
 
@@ -100,8 +118,7 @@ export class ReviewPanel implements vscode.WebviewViewProvider {
       this.view.webview.postMessage({ type: 'loading', loading: true });
     } else {
       // Send the real state immediately so there's no flash of the disabled screen
-      const state = this.buildPanelState();
-      this.view.webview.postMessage({ type: 'update', state });
+      this.postState();
     }
   }
 
