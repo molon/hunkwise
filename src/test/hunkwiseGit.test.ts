@@ -75,6 +75,62 @@ describe('HunkwiseGit', () => {
     });
   });
 
+  describe('getBaselines', () => {
+    it('returns an empty map for no paths', async () => {
+      assert.equal((await git.getBaselines([])).size, 0);
+    });
+
+    it('matches getBaseline for tracked files', async () => {
+      const fileA = path.join(tmpDir, 'bulk-a.txt');
+      const fileB = path.join(tmpDir, 'bulk-b.txt');
+      await git.snapshotBatch([
+        { filePath: fileA, content: 'alpha\n' },
+        { filePath: fileB, content: 'beta\nbeta2\n' },
+      ]);
+
+      const baselines = await git.getBaselines([fileA, fileB]);
+      assert.equal(baselines.get(fileA), 'alpha\n');
+      assert.equal(baselines.get(fileB), 'beta\nbeta2\n');
+      assert.equal(baselines.get(fileA), await git.getBaseline(fileA));
+    });
+
+    it('maps missing files to undefined without desyncing the rest', async () => {
+      const tracked = path.join(tmpDir, 'bulk-present.txt');
+      const missing = path.join(tmpDir, 'bulk-missing.txt');
+      await git.snapshot(tracked, 'present\n');
+
+      // The missing paths sit either side of a hit — a misparsed header would
+      // shift every following entry onto the wrong file
+      const baselines = await git.getBaselines([missing, tracked, missing]);
+      assert.equal(baselines.get(missing), undefined);
+      assert.equal(baselines.get(tracked), 'present\n');
+      assert.equal(baselines.size, 2);
+    });
+
+    it('handles empty baseline content', async () => {
+      const filePath = path.join(tmpDir, 'bulk-empty.txt');
+      await git.snapshot(filePath, '');
+      assert.equal((await git.getBaselines([filePath])).get(filePath), '');
+    });
+
+    it('handles unicode and CRLF content', async () => {
+      const filePath = path.join(tmpDir, 'bulk-unicode.txt');
+      const content = 'héllo — ünïcode\r\nsecond ✓\n';
+      await git.snapshot(filePath, content);
+      assert.equal((await git.getBaselines([filePath])).get(filePath), content);
+    });
+
+    it('falls back to per-file reads when a path cannot form a batch line', async () => {
+      const newlinePath = path.join(tmpDir, 'bulk\nnewline.txt');
+      const normalPath = path.join(tmpDir, 'bulk-normal.txt');
+      await git.snapshot(normalPath, 'normal\n');
+
+      const baselines = await git.getBaselines([newlinePath, normalPath]);
+      assert.equal(baselines.get(newlinePath), undefined);
+      assert.equal(baselines.get(normalPath), 'normal\n');
+    });
+  });
+
   describe('snapshotBatch', () => {
     it('snapshots multiple files atomically', async () => {
       const files = [
