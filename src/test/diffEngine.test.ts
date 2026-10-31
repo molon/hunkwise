@@ -174,6 +174,22 @@ describe('computeHunks', () => {
     assert.equal(hunks[0].oldLines, 10);
     assert.equal(hunks[0].newLines, 1);
   });
+
+  it('handles a single chunk too large to spread into push()', () => {
+    // A regenerated generated file arrives as one 200k-line chunk. Spreading it into
+    // push() threw RangeError: Maximum call stack size exceeded before this fix.
+    const big = Array.from({ length: 200_000 }, (_, i) => `line${i}`).join('\n') + '\n';
+
+    const added = computeHunks('', big);
+    assert.equal(added.length, 1);
+    assert.equal(added[0].newLines, 200_000);
+    assert.equal(added[0].oldLines, 0);
+
+    const removed = computeHunks(big, '');
+    assert.equal(removed.length, 1);
+    assert.equal(removed[0].oldLines, 200_000);
+    assert.equal(removed[0].newLines, 0);
+  });
 });  // end computeHunks
 
 describe('hunkId', () => {
