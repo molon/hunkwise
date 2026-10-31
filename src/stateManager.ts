@@ -138,12 +138,19 @@ export class StateManager {
     const skippedNoBaseline: string[] = [];
     const reviewing: string[] = [];
     const idle: string[] = [];
-    await Promise.all(tracked.map(async filePath => {
+    // Screen the ignore rules first, then read every remaining baseline in one git
+    // process: one `git show` per tracked file kept activation blocked for minutes.
+    const candidates: string[] = [];
+    for (const filePath of tracked) {
       if (shouldIgnore?.(filePath)) {
         ignored.push(filePath);
-        return;
+      } else {
+        candidates.push(filePath);
       }
-      const baseline = await g.getBaseline(filePath);
+    }
+    const baselines = await g.getBaselines(candidates);
+    await Promise.all(candidates.map(async filePath => {
+      const baseline = baselines.get(filePath);
       if (baseline === undefined) {
         skippedNoBaseline.push(filePath);
         return;
@@ -219,8 +226,9 @@ export class StateManager {
     await g.initGit();
     const tracked = await g.listTrackedFiles();
     const filtered = tracked.filter(fp => !shouldIgnore?.(fp));
+    const baselines = await g.getBaselines(filtered);
     await Promise.all(filtered.map(async filePath => {
-      const baseline = await g.getBaseline(filePath);
+      const baseline = baselines.get(filePath);
       if (baseline === undefined) return;
       let diskContent: string | undefined;
       let fileDeleted = false;

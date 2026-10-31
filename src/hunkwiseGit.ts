@@ -3,6 +3,7 @@ import * as path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { normalizePath } from './pathNormalize';
+import { readIndexBlobs } from './gitBatch';
 
 const execFileAsync = promisify(execFile);
 
@@ -342,6 +343,48 @@ export class HunkwiseGit {
     } catch {
       return undefined;
     }
+  }
+
+  /**
+   * Return the baseline content for many files at once.
+   *
+   * One `git show` per tracked file means one child process per file — minutes of
+   * startup on a 10k-file workspace — so bulk reads share a single
+   * `git cat-file --batch` process. Missing entries map to `undefined`, exactly like
+   * `getBaseline`, and the read falls back to per-file calls whenever the batch
+   * stream cannot be trusted.
+   */
+  async getBaselines(filePaths: string[]): Promise<Map<string, string | undefined>> {
+    await this.initGit();
+    const baselines = new Map<string, string | undefined>();
+    if (filePaths.length === 0) return baselines;
+
+    const rels = filePaths.map(fp => normalizePath(path.relative(this.workTree, fp)));
+    // cat-file --batch is line oriented: a newline in a path would desync the stream
+    const results = rels.some(rel => rel.includes('\n'))
+      ? undefined
+      : await readIndexBlobs(rels, { cwd: this.workTree, env: this.env });
+
+    if (!results) {
+      this.log('getBaselines: batch read unavailable — falling back to per-file reads');
+      // Bounded concurrency: unbounded spawning is what made this slow in the first place
+      const FALLBACK_CONCURRENCY = 8;
+      let next = 0;
+      const worker = async () => {
+        while (next < filePaths.length) {
+          const filePath = filePaths[next++];
+          baselines.set(filePath, await this.getBaseline(filePath));
+        }
+      };
+      await Promise.all(
+        Array.from({ length: Math.min(FALLBACK_CONCURRENCY, filePaths.length) }, () => worker())
+      );
+      return baselines;
+    }
+    for (let i = 0; i < filePaths.length; i++) {
+      baselines.set(filePaths[i], results[i]);
+    }
+    return baselines;
   }
 
   /**
